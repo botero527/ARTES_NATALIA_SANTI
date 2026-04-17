@@ -56,7 +56,6 @@ def objetos_en_patron(patron):
     return resultado
 
 
-
 def primera_curva_cerrada_en_patron(patron):
     """Primera curva cerrada en layers que contengan el patrón."""
     for obj in objetos_en_patron(patron):
@@ -403,6 +402,128 @@ def main():
         doc.Views.Redraw()
 
     _log("=== Arte Maker: COMPLETADO ===")
+
+    # 11. Ventana para rellenar campos del cajetin ────────────────────────────
+    _log("  [11] Abriendo ventana de cajetin...")
+    import tkinter as tk
+    from tkinter import ttk
+    import datetime
+
+    _hoy = datetime.date.today().strftime("%d.%m.%Y")
+
+    # Defaults predeterminados (el usuario puede editarlos antes de aceptar)
+    _DEFAULTS = {
+        "MEDIDAS":  "Milimetros",
+        "VISTA":    "Interna",
+        "REVISADO": "Santiago P.",
+        "FECHA":    _hoy,
+        "ESCALA":   "1:1",
+    }
+
+    # Solo los campos que el dibujante debe llenar manualmente.
+    # NAGS, VERSION y PIEZA se derivan del Codigo plano.
+    # REVISADO, FECHA, VISTA, MEDIDAS y ESCALA se rellenan por defecto.
+    _CAMPOS = [
+        ("DIBUJO",    "Dibujo"),
+        ("VEHICULO",  "Vehiculo"),
+        ("MODELO",    "Modelo"),
+        ("COD PLANO", "Codigo plano"),
+        ("VITRO",     "Vitro"),
+        ("MALLA",     "Malla"),
+    ]
+
+    def _parsear_cod_plano(cod):
+        """
+        '1795 003 001-002' -> nags='1795', version='V-003', pieza='001-002'
+        Separa por espacios: [0]=NAGS, [1]=VERSION, resto=PIEZA
+        """
+        partes = cod.strip().split()
+        if not partes:
+            return "", "", ""
+        nags    = partes[0]
+        version = ("V-" + partes[1]) if len(partes) > 1 else ""
+        pieza   = " ".join(partes[2:]) if len(partes) > 2 else ""
+        return nags, version, pieza
+
+    _valores = {}
+    _cancelado = [False]
+
+    _ventana = tk.Tk()
+    _ventana.title("Rellenar Cajetin 1")
+    _ventana.resizable(False, False)
+    _ventana.attributes("-topmost", True)
+
+    _frame = ttk.Frame(_ventana, padding=16)
+    _frame.grid(row=0, column=0, sticky="nsew")
+
+    _entries = {}
+    for _i, (_campo, _etiqueta) in enumerate(_CAMPOS):
+        ttk.Label(_frame, text=_etiqueta + ":", anchor="e", width=18).grid(
+            row=_i, column=0, sticky="e", pady=4, padx=(0, 8)
+        )
+        _ent = ttk.Entry(_frame, width=36)
+        _ent.grid(row=_i, column=1, sticky="w", pady=4)
+        if _campo in _DEFAULTS:
+            _ent.insert(0, _DEFAULTS[_campo])
+        _entries[_campo] = _ent
+
+    # Al salir del campo "Codigo plano" auto-rellena NAGS, VERSION y PIEZA
+    def _on_cod_plano(*_):
+        _n, _v, _p = _parsear_cod_plano(_entries["COD PLANO"].get())
+        for _k, _val in [("NAGS", _n), ("VERSION", _v), ("PIEZA", _p)]:
+            _entries[_k].delete(0, tk.END)
+            _entries[_k].insert(0, _val)
+
+    _entries["COD PLANO"].bind("<FocusOut>", _on_cod_plano)
+    _entries["COD PLANO"].bind("<Tab>",      _on_cod_plano)
+
+    list(_entries.values())[0].focus_set()
+
+    def _aceptar(*_):
+        for _c, _e in _entries.items():
+            _valores[_c] = _e.get().strip()
+        _ventana.destroy()
+
+    def _cancelar(*_):
+        _cancelado[0] = True
+        _ventana.destroy()
+
+    _ventana.bind("<Escape>", _cancelar)
+
+    _btn = ttk.Frame(_frame)
+    _btn.grid(row=len(_CAMPOS), column=0, columnspan=2, pady=(12, 0))
+    ttk.Button(_btn, text="Aceptar",  command=_aceptar).pack(side="left", padx=8)
+    ttk.Button(_btn, text="Cancelar", command=_cancelar).pack(side="left", padx=8)
+
+    _ventana.mainloop()
+
+    if not _cancelado[0] and _valores:
+        _all_layers = rs.LayerNames() or []
+        for _campo, _texto in _valores.items():
+            if not _texto:
+                continue
+            _layer_buscar = "CAJETIN 1${} 1".format(_campo)
+            _layer_found = None
+            for _ln in _all_layers:
+                if _ln.upper().endswith(_layer_buscar.upper()):
+                    _layer_found = _ln
+                    break
+            if _layer_found is None:
+                _log("  WARN: layer '{}' no encontrado".format(_layer_buscar))
+                continue
+            _n = 0
+            for _oid in (rs.ObjectsByLayer(_layer_found) or []):
+                try:
+                    if rs.IsText(_oid):
+                        rs.TextObjectText(_oid, _texto)
+                        _n += 1
+                except Exception:
+                    pass
+            _log("  {} -> '{}' ({} texto(s))".format(_campo, _texto, _n))
+    else:
+        _log("  Cajetin: sin cambios.")
+
+    _log("=== Arte Maker: FIN ===")
 
 
 main()
