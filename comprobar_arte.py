@@ -1,17 +1,4 @@
-#!/usr/bin/env python
-# -*- coding: utf-8 -*-
-"""
-AGP GROUP — Comprobar Arte
-Ejecutar:  py comprobar_arte.py
 
-Flujo:
-  1. Indica la ruta de búsqueda (vehiculo / modelo / version o cualquier nivel)
-     y el plano DWG original.
-  2. COMPROBAR busca recursivamente en carpetas ARTES archivos cuyo nombre
-     contenga el mismo código base que el plano.
-  3. Doble clic en fila verde → AutoCAD abre el arte y superpone el plano
-     exactamente en 0,0 para verificar visualmente si coinciden.
-"""
 import os
 import sys
 import time

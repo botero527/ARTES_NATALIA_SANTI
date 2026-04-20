@@ -8,7 +8,7 @@ import os
 
 # ── parámetros inyectados ────────────────────────────────────────────────────
 DWG_PLANO       = r"\\\\192.168.2.37\\ingenieria\\PRODUCCION\\AGP PLANOS TECNICOS\\MBZ\\MBZ GLC 4D COUPE 2024\\V-08  AUTO SAFE\\ARTES\\1708 008 030 A_PLANO.dwg"
-DWG_CAJETIN     = r"c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\LAYERS Y CAJETINES 1.dwg"
+DWG_CAJETIN     = r"c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\LAYERS Y CAJETINES 1.3dm"
 RUTA_SALIDA     = r"c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\1708 008 030 A_ARTE.3dm"
 LAYER_PLANES    = "PLANES"
 LAYER_K2        = "k2"
