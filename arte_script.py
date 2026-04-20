@@ -236,6 +236,28 @@ def main():
         rs.EnableRedraw(True)
         return
 
+    # 1c. Preguntar si aplicar offset de 3 mm al perimetro ────────────────────
+    rs.EnableRedraw(True)
+    _resp_offset = rs.GetString(
+        "Aplicar offset de 3 mm al perimetro? (s = si / Enter = no)"
+    )
+    rs.EnableRedraw(False)
+
+    if _resp_offset and _resp_offset.strip().lower() in ("s", "si", "sí", "y", "yes"):
+        _log("  [1c] Aplicando offset de 3 mm al perimetro...")
+        _layer_perim = rs.ObjectLayer(perim_id)
+        _perim_orig_id = perim_id  # guardar original para borrar al final
+        _perim_offset_id = offset_hacia_adentro(perim_id, 3.0, _layer_perim)
+        if _perim_offset_id:
+            perim_id = _perim_offset_id  # desde aqui perim_id = curva offset
+            _log("  Offset de perimetro creado. Original se borrara al final.")
+        else:
+            _perim_orig_id = None
+            _log("  WARN: No se pudo crear offset del perimetro, se usa el original.")
+    else:
+        _perim_orig_id = None
+        _log("  [1c] Sin offset de perimetro.")
+
     # Recolectar TODAS las curvas cerradas de BN/PHANTOM ordenadas por area
     # La de mayor area = exterior (mas cerca del perimetro) = bn_id
     _bn_lista = []
@@ -381,6 +403,14 @@ def main():
                 rs.DeleteObject(_oid)
             except Exception:
                 pass
+
+    # 9c. Borrar perimetro original si se aplico offset de 3 mm ─────────────
+    if _perim_orig_id:
+        try:
+            rs.DeleteObject(_perim_orig_id)
+            _log("  Perimetro original eliminado (queda solo el offset 3 mm).")
+        except Exception:
+            pass
 
     # 10. Mover PERIMETRO y BN/PHANTOM al layer PLANES ───────────────────────
     _log("  [10] Moviendo geometria original a PLANES...")

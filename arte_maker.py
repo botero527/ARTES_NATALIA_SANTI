@@ -119,7 +119,6 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
 
 
 
-
 class ArteMakerApp(tk.Tk):
     def __init__(self):
         super().__init__()
