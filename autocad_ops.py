@@ -91,8 +91,7 @@ class AutoCADMotor:
             doc.Close(guardar)
         except Exception:
             pass
-
-    # ── operación principal ─────────────────────────────────────────────────
+ # ── operación principal ─────────────────────────────────────────────────
 
     def extraer_layers(
         self,
