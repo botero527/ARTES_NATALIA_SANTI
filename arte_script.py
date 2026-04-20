@@ -172,13 +172,12 @@ def distribuir_bloque_freeform(bloque_id, curva_id, n_items):
     orientacion = rs.ClosedCurveOrientation(curva_id)
     angulo_extra = 0 if (orientacion is not None and orientacion > 0) else 180
 
-    # Punto de referencia = centro del bounding box del bloque
-    bbox = rs.BoundingBox([bloque_id])
-    if not bbox:
+    # Punto de referencia = punto de insercion del bloque (origen definido
+    # por el dibujante), que debe coincidir con el centro de los circulos.
+    _ins = rs.BlockInstanceInsertPoint(bloque_id)
+    if _ins is None:
         return []
-    ref_x = (bbox[0][0] + bbox[6][0]) / 2.0
-    ref_y = (bbox[0][1] + bbox[6][1]) / 2.0
-    ref_pt = [ref_x, ref_y, 0.0]
+    ref_pt = [_ins[0], _ins[1], 0.0]
 
     nuevos = []
     for i in range(n_items):
