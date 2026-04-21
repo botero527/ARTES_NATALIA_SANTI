@@ -8,7 +8,7 @@ import os
 
 # ── parámetros inyectados ────────────────────────────────────────────────────
 DWG_PLANO       = r"\\\\192.168.2.37\\ingenieria\\PRODUCCION\\AGP PLANOS TECNICOS\\MBZ\\MBZ GLC 4D COUPE 2024\\V-08  AUTO SAFE\\ARTES\\1708 008 030 A_PLANO.dwg"
-DWG_CAJETIN     = r"c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\LAYERS Y CAJETINES 1.3dm"
+DWG_CAJETIN     = r"\\192.168.2.37\ingenieria\PRODUCCION\AGP PLANOS TECNICOS\Users\ANDRES ING\LAYERS Y CAJETINES 1.3dm"
 RUTA_SALIDA     = r"c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\1708 008 030 A_ARTE.3dm"
 LAYER_PLANES    = "PLANES"
 LAYER_K2        = "k2"
@@ -62,6 +62,54 @@ def primera_curva_cerrada_en_patron(patron):
         if rs.IsCurve(obj) and rs.IsCurveClosed(obj):
             return obj
     return None
+
+
+def verificar_radios(curva_id, radio_minimo=15.0):
+    """
+    Revisa todos los segmentos de la curva.
+    Devuelve lista de radios menores al minimo encontrados.
+    Maneja PolyCurves (segmentos de arco y NURBS) y curvas simples.
+    """
+    import Rhino.Geometry as rg  # type: ignore
+    radios_chicos = []
+    crv = rs.coercecurve(curva_id)
+    if not crv:
+        return radios_chicos
+
+    # Obtener segmentos si es PolyCurve, si no usar la curva entera
+    if isinstance(crv, rg.PolyCurve):
+        segmentos = [crv.SegmentCurve(i) for i in range(crv.SegmentCount)]
+    else:
+        segmentos = [crv]
+
+    tol = sc.doc.ModelAbsoluteTolerance
+
+    for seg in segmentos:
+        if seg is None:
+            continue
+
+        # Si es un arco: radio directo
+        _ok, arc = seg.TryGetArc(tol)
+        if _ok:
+            if arc.Radius < radio_minimo:
+                radios_chicos.append(round(arc.Radius, 3))
+            continue
+
+        # Para cualquier otra curva: muestrear curvatura en varios puntos
+        dom = seg.Domain
+        n_muestras = 20
+        for j in range(n_muestras + 1):
+            t = dom.ParameterAt(j / n_muestras)
+            k_vec = seg.CurvatureAt(t)
+            if k_vec is None:
+                continue
+            k = k_vec.Length  # magnitud de curvatura
+            if k > 1e-10:    # evitar division por cero (segmento recto)
+                radio = 1.0 / k
+                if radio < radio_minimo:
+                    radios_chicos.append(round(radio, 3))
+
+    return radios_chicos
 
 
 def hatch_solido(curvas_ids, layer_nombre):
@@ -234,6 +282,25 @@ def main():
         _log("  Layers en doc: {}".format(", ".join(str(_l) for _l in _all_layers)))
         rs.EnableRedraw(True)
         return
+
+    # 1b-radio. Verificar radios minimos del perimetro (minimo 15 mm) ─────────
+    _log("  [1b] Verificando radios del perimetro (min 15 mm)...")
+    _radios_chicos = verificar_radios(perim_id, radio_minimo=15.0)
+    if _radios_chicos:
+        _minimo = min(_radios_chicos)
+        _msg = (
+            "ATENCION: eso esta mal rey radios menores a 15 mm. Me tocara hacerlo a mi o que?\n"
+            "Radio minimo encontrado: {:.3f} mm\n"
+            "Valores: {}\n\n"
+            "Esta pieza NO se puede procesar por si no quedo claro.\n"
+            "Corrija los radios en el plano y vuelva a intentarlo.:)"
+        ).format(_minimo, ", ".join(str(r) for r in sorted(set(_radios_chicos))[:8]))
+        _log("  WARN radios: " + _msg.replace("\n", " | "))
+        rs.EnableRedraw(True)
+        rs.MessageBox(_msg, 48, "AGP Arte Maker — Advertencia radios")
+        rs.EnableRedraw(False)
+    else:
+        _log("  Radios OK — todos >= 15 mm.")
 
     # 1c. Preguntar si aplicar offset de 3 mm al perimetro ────────────────────
     rs.EnableRedraw(True)
