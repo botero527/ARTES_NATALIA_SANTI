@@ -66,32 +66,48 @@ def _codigo_base(ruta_archivo: str) -> str:
 
 
 def _buscar_artes(ruta: str, codigo: str) -> list:
+    """Busca recursivamente en ARTES y en todas sus subcarpetas."""
     resultados = []
     codigo_cmp = codigo.upper().strip()
     for raiz, dirs, archivos in os.walk(ruta):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
-        if os.path.basename(raiz).upper() == "ARTES":
-            for archivo in sorted(archivos):
-                if os.path.splitext(archivo)[1].lower() not in (".dwg", ".3dm"):
-                    continue
-                nombre_cmp = os.path.splitext(archivo)[0].upper()
-                coincide   = bool(codigo_cmp) and (codigo_cmp in nombre_cmp)
-                rel = os.path.relpath(raiz, ruta)
-                resultados.append({
-                    "version":       rel,
-                    "archivo":       archivo,
-                    "ruta_completa": os.path.join(raiz, archivo),
-                    "coincide":      coincide,
-                })
+        partes = raiz.replace("\\", "/").upper().split("/")
+
+        # Estamos dentro de ARTES si alguna parte del path es "ARTES"
+        if "ARTES" not in partes:
+            continue
+
+        for archivo in sorted(archivos):
+            if os.path.splitext(archivo)[1].lower() not in (".dwg", ".3dm"):
+                continue
+            nombre_cmp = os.path.splitext(archivo)[0].upper()
+            coincide   = bool(codigo_cmp) and (codigo_cmp in nombre_cmp)
+            rel = os.path.relpath(raiz, ruta)
+            resultados.append({
+                "version":       rel,
+                "archivo":       archivo,
+                "ruta_completa": os.path.join(raiz, archivo),
+                "coincide":      coincide,
+            })
+
     resultados.sort(key=lambda x: (not x["coincide"], x["version"], x["archivo"]))
     return resultados
 
 
 def _ruta_planos(ruta_base: str) -> str:
-    """Crea y devuelve la carpeta PLANOS dentro de ruta_base."""
-    ruta = os.path.join(ruta_base, "PLANOS")
-    os.makedirs(ruta, exist_ok=True)
-    return ruta
+    """
+    Lógica de destino para EXTRAER PLANO:
+    - Si ruta_base tiene carpeta ARTES  → PLANOS va dentro de ARTES
+    - Si no tiene ARTES                 → PLANOS va directo en ruta_base
+    En ambos casos crea la carpeta si no existe.
+    """
+    artes = os.path.join(ruta_base, "ARTES")
+    if os.path.isdir(artes):
+        destino = os.path.join(artes, "PLANOS")
+    else:
+        destino = os.path.join(ruta_base, "PLANOS")
+    os.makedirs(destino, exist_ok=True)
+    return destino
 
 
 def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
@@ -107,7 +123,7 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
                 "AutoCAD no está abierto.\n"
                 "Abre AutoCAD primero y vuelve a intentarlo."
             )
-
+        
         log_fn(f"  Abriendo: {os.path.basename(ruta_arte)}")
         doc = acad.Documents.Open(os.path.abspath(ruta_arte), False, False)
         time.sleep(2)
