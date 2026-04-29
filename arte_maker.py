@@ -134,8 +134,6 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
         log_fn("  Listo. Verifica que el perímetro del plano coincida con el arte.")
     finally:
         pythoncom.CoUninitialize()
-
-
 # ─── WIDGET HELPERS ──────────────────────────────────────────────────────────
 
 class NeonButton(tk.Frame):

@@ -5,7 +5,7 @@ a = Analysis(
     ['arte_maker.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[('autocad_ops.py', '.'), ('config.py', '.')],
     hiddenimports=[],
     hookspath=[],
     hooksconfig={},
@@ -35,4 +35,5 @@ exe = EXE(
     target_arch=None,
     codesign_identity=None,
     entitlements_file=None,
+    icon=['logo.ico'],
 )

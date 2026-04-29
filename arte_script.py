@@ -289,11 +289,11 @@ def main():
     if _radios_chicos:
         _minimo = min(_radios_chicos)
         _msg = (
-            "ATENCION: eso esta mal rey radios menores a 15 mm. Me tocara hacerlo a mi o que?\n"
-            "Radio minimo encontrado: {:.3f} mm\n"
+            "Se detectaron radios menores a 15 mm en el perímetro.\n"
+            "Radio mínimo encontrado: {:.3f} mm\n"
             "Valores: {}\n\n"
-            "Esta pieza NO se puede procesar por si no quedo claro.\n"
-            "Corrija los radios en el plano y vuelva a intentarlo.:)"
+            "Se recomienda revisar el plano.\n"
+            "El proceso continuará de todas formas."
         ).format(_minimo, ", ".join(str(r) for r in sorted(set(_radios_chicos))[:8]))
         _log("  WARN radios: " + _msg.replace("\n", " | "))
         rs.EnableRedraw(True)
@@ -618,6 +618,55 @@ def main():
             _log("  {} -> '{}' ({} texto(s))".format(_campo, _texto, _n))
     else:
         _log("  Cajetin: sin cambios.")
+
+    # ── Mover sublayers de CAJETIN 1 al layer padre y purgar ─────────────────
+    import Rhino
+    import scriptcontext as sc2
+
+    _all_layers_fin = rs.LayerNames() or []
+    _log("  Layers encontrados: {}".format(len(_all_layers_fin)))
+
+    # Buscar el índice del layer CAJETIN 1
+    _cajetin_idx = -1
+    _cajetin_nombre = None
+    for _ln in _all_layers_fin:
+        if _ln.upper() == "CAJETIN 1":
+            _cajetin_idx = sc2.doc.Layers.FindByFullPath(_ln, True)
+            _cajetin_nombre = _ln
+            break
+
+    if _cajetin_idx >= 0:
+        _movidos_total = 0
+        # Recorrer TODOS los objetos del documento y mover los que estén
+        # en cualquier sublayer de CAJETIN 1
+        _prefijo = "CAJETIN 1::".upper()
+        for _ln in _all_layers_fin:
+            if _ln.upper().startswith(_prefijo):
+                _log("  Moviendo objetos de layer: {}".format(_ln))
+                _objs = rs.ObjectsByLayer(_ln)
+                if not _objs:
+                    continue
+                for _oid in _objs:
+                    try:
+                        obj = sc2.doc.Objects.Find(_oid)
+                        if obj:
+                            obj.Attributes.LayerIndex = _cajetin_idx
+                            obj.CommitChanges()
+                            _movidos_total += 1
+                    except Exception as _ex:
+                        _log("  ERR mover objeto: {}".format(_ex))
+        sc2.doc.Views.Redraw()
+        _log("  Cajetin: {} objeto(s) movidos al layer '{}'.".format(
+            _movidos_total, _cajetin_nombre))
+    else:
+        _log("  WARN: layer 'CAJETIN 1' no encontrado (layers: {}).".format(
+            [l for l in _all_layers_fin if "CAJETIN" in l.upper()]))
+
+    # ── Purgar layers y bloques sin usar ──────────────────────────────────────
+    rs.EnableRedraw(True)
+    rs.Command("-_Purge _All _Enter _Enter", False)
+    rs.EnableRedraw(False)
+    _log("  Purge ejecutado.")
 
     _log("=== Arte Maker: FIN ===")
 
