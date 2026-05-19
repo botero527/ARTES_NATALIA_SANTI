@@ -28,7 +28,7 @@ LAYER_K2      = "k2"
 LAYER_K       = "k"
 LAYER_K3      = "k3"
 RADIO_MIN     = 15.0
-DEGRADE_INVERTIR = True   # True = REVERSE antes del DIVIDE (bolas grandes hacia BN)
+DEGRADE_INVERTIR = False  # False = sin REVERSE (bolas grandes hacia el BN/azul)
 
 PAT_PERIM = ["PERIMETRO"]
 PAT_BN    = ["BANDA NEGRA", "BANDANEGRA", "BN", "PHANTOM", "BANDA"]
@@ -164,22 +164,27 @@ def offset_inward(ent, dist):
     area_orig = area_bbox(ent)
     mejor = None
     mejor_area = 1e18
+    todos = []
     for d in [dist, -dist]:
         try:
             results = list(ent.Offset(d))
-            for r in results:
-                a = area_bbox(r)
-                if a < area_orig and a < mejor_area:
-                    mejor_area = a
-                    if mejor and mejor != r:
-                        try: mejor.Delete()
-                        except Exception: pass
-                    mejor = r
-                else:
-                    try: r.Delete()
-                    except Exception: pass
+            todos.extend(results)
         except Exception:
             pass
+    # Primera pasada: preferir el que tenga área menor que el original
+    for r in todos:
+        a = area_bbox(r)
+        if a < area_orig and a < mejor_area:
+            mejor_area = a
+            mejor = r
+    # Si ninguno pasó el filtro de área, tomar el de menor área absoluta
+    if mejor is None and todos:
+        mejor = min(todos, key=area_bbox)
+    # Borrar los descartados
+    for r in todos:
+        if r != mejor:
+            try: r.Delete()
+            except Exception: pass
     return mejor
 
 
@@ -472,7 +477,7 @@ def main():
 
                 # Nivel 1: explotar bloque raíz del DWG
                 nivel1 = []
-                try:
+                try: 
                     nivel1 = list(blk_ref.Explode())
                     log(f"  Nivel 1 explosión: {len(nivel1)} objetos")
                 except Exception as ex1:
@@ -519,25 +524,36 @@ def main():
         cajetin_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
         log(f"  CAJETIN en msp: {len(cajetin_ents)} obj  |  LOGO1: {len(logo1_ents)} obj")
 
-        # Borrar objetos nuevos que no son CAJETIN ni LOGO1 (AYUDAS, etc.)
-        conservar_layers = {"CAJETIN", "LOGO"}
+        # Borrar objetos nuevos que no son CAJETIN 1 ni LOGO1 (borra CAJETIN 2, LOGO2, AYUDAS, etc.)
         borrados = 0
         for e in nuevos:
             try:
                 ly = e.Layer.upper()
-                if not any(pat in ly for pat in conservar_layers):
-                    e.Delete()
-                    borrados += 1
+                # Conservar solo CAJETIN 1 (con espacio) y LOGO1
+                if "CAJETIN 1" in ly or "LOGO1" in ly:
+                    continue
+                e.Delete()
+                borrados += 1
             except Exception:
                 pass
         log(f"  Limpieza: {borrados} objeto(s) sobrantes eliminados ✔")
+        msp = doc.ModelSpace   # refrescar tras borrar 150+ objetos
 
         # ── 8. Reemplazar logo ────────────────────────────────────────────────
         log("[8] Reemplazando logo...")
         # Refetchear logo del plano desde el msp fresco (por handle)
-        logo_plano = [e for e in msp
-                      if hasattr(e, 'Handle') and e.Handle in _logo_handles]
-        logo1_ents = [e for e in msp if "LOGO1" in e.Layer.upper()]
+        logo_plano = []
+        logo1_ents = []
+        for _e in msp:
+            try:
+                _h = _e.Handle
+                _ly = _e.Layer.upper()
+                if _h in _logo_handles:
+                    logo_plano.append(_e)
+                if "LOGO1" in _ly:
+                    logo1_ents.append(_e)
+            except Exception:
+                pass
         log(f"  logo_plano: {len(logo_plano)}  logo1: {len(logo1_ents)}")
         try:
             if logo_plano and logo1_ents:
@@ -561,7 +577,14 @@ def main():
 
         # ── 9. Centrar cajetín sobre la pieza ─────────────────────────────────
         log("[9] Centrando cajetín...")
-        caj_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
+        msp = doc.ModelSpace   # refrescar tras operaciones de logo
+        caj_ents = []
+        for _e in msp:
+            try:
+                if "CAJETIN" in _e.Layer.upper():
+                    caj_ents.append(_e)
+            except Exception:
+                pass
         log(f"  Buscando CAJETIN en msp: {len(caj_ents)} objetos")
         if caj_ents:
             cx_p, cy_p = centro_bbox([perim_ent])
@@ -591,11 +614,13 @@ def main():
         # ── 12. Hatch k2 (perímetro → offset 0.5) ────────────────────────────
         log("[12] Hatch k2...")
         hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
+        time.sleep(1.0)
 
         # ── 13. Hatch k (BN → offset 0.5) ────────────────────────────────────
         log("[13] Hatch k...")
         if bn_ent:
             hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
+            time.sleep(1.0)
         else:
             log("  WARN: no se encontró banda negra.")
 
@@ -660,6 +685,8 @@ def main():
 
         # ── 15. Mover PERIMETRO/BN a PLANES ──────────────────────────────────
         log("[15] Moviendo geometría original a PLANES...")
+        time.sleep(1.5)           # dejar que AutoCAD termine hatches/regen
+        msp = doc.ModelSpace      # refrescar antes de iterar
         for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
             try: e.Layer = LAYER_PLANES
             except Exception: pass
@@ -671,13 +698,26 @@ def main():
         valores = dialogo_cajetin(nombre_plano)
 
         if valores:
-            actualizar_texto_cajetin(msp, valores)
+            actualizar_texto_cajetin(doc.ModelSpace, valores)
             log("  Cajetín aplicado ✔ — guarda manualmente cuando estés conforme.")
         else:
             log("  Cajetín: cancelado por el usuario.")
 
-        # ── 18. Purge — elimina layers vacíos (AYUDAS, etc.) ─────────────────
-        log("[18] Purgando layers y bloques sin usar...")
+        # ── 18. Consolidar sublayers CAJETIN 1$* → CAJETIN1 ─────────────────
+        log("[18] Consolidando layers CAJETIN 1$* → CAJETIN1...")
+        asegurar_layer(doc, "CAJETIN1")
+        consolidados = 0
+        for _e in doc.ModelSpace:
+            try:
+                if _e.Layer.upper().startswith("CAJETIN 1$") or _e.Layer.upper() == "CAJETIN 1":
+                    _e.Layer = "CAJETIN1"
+                    consolidados += 1
+            except Exception:
+                pass
+        log(f"  {consolidados} objeto(s) movidos a CAJETIN1 ✔")
+
+        # ── 19. Purge — elimina layers vacíos (AYUDAS, etc.) ─────────────────
+        log("[19] Purgando layers y bloques sin usar...")
         doc.SendCommand("-PURGE\nAll\n*\nN\n")
         time.sleep(2)
 
