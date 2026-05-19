@@ -2375,3 +2375,117 @@
   Cajetin: 15 objeto(s) movidos al layer 'CAJETIN 1'.
   Purge ejecutado.
 === Arte Maker: FIN ===
+=== Arte Maker: iniciando script Rhino ===
+  [1b] Detectando geometria del plano...
+  [1b] Verificando radios del perimetro (min 15 mm)...
+  WARN radios: Se detectaron radios menores a 15 mm en el perímetro. | Radio mínimo encontrado: 3.000 mm | Valores: 3.0, 10.5, 15.0 |  | Se recomienda revisar el plano. | El proceso continuará de todas formas.
+  [1c] Aplicando offset de 3 mm al perimetro...
+  Offset de perimetro creado. Original se borrara al final.
+  --> 2 curvas cerradas BN: CON degrade
+  [1/7] Importando cajetines...
+  [2/7] Preparando layers de arte...
+  [4/8] Offset perimetro 0.5 mm...
+  [5/8] Hatch k2 (borde perímetro)...
+  [6/8] Hatch k (banda negra)...
+  [7] Reemplazando logo con LOGO1 del cajetin...
+  LOGO1 encontrados: 1  logo plano: 1
+  Logo reemplazado con LOGO1.
+  [7b] Centrando cajetin 1 en la pieza...
+  Cajetin 1 centrado.
+  [8/8] Degradé: offset BN interior...
+     longitud offset 2.5: 2119.89 mm  pepas: 707
+     Distribuyendo bloque '25' x707 sobre offset 2.5...
+  [9] Limpiando objetos sobrantes del import...
+  Perimetro original eliminado (queda solo el offset 3 mm).
+  [10] Moviendo geometria original a PLANES...
+  Guardando en: c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\1708 008 030 A_ARTE.3dm
+=== Arte Maker: COMPLETADO ===
+  [11] Abriendo ventana de cajetin...
+  DIBUJO -> 'yo' (1 texto(s))
+  VEHICULO -> 'carro nuevo 2024' (1 texto(s))
+  MODELO -> '2024' (1 texto(s))
+  COD PLANO -> '1795 003 001-002' (1 texto(s))
+  NAGS -> '1795' (1 texto(s))
+  VERSION -> '003' (1 texto(s))
+  PIEZA -> '001-002' (1 texto(s))
+  VITRO -> 'assa' (1 texto(s))
+  MALLA -> 'asasas' (1 texto(s))
+  FECHA -> '30.04.2026' (1 texto(s))
+  REVISADO -> 'Santiago P.' (1 texto(s))
+  MEDIDAS -> 'Milimetros' (1 texto(s))
+  VISTA -> 'Interna' (2 texto(s))
+  ESCALA -> '1:1' (1 texto(s))
+  Layers encontrados: 42
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$DIBUJO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VISTA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$COD PLANO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MODELO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$NAGS 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VITRO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MALLA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VEHICULO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VERSION 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$FECHA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$PIEZA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MEDIDAS 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$ESCALA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$REVISADO 1
+  Cajetin: 15 objeto(s) movidos al layer 'CAJETIN 1'.
+  Purge ejecutado.
+=== Arte Maker: FIN ===
+=== Arte Maker: iniciando script Rhino ===
+  [1b] Detectando geometria del plano...
+  [1b] Verificando radios del perimetro (min 15 mm)...
+  WARN radios: Se detectaron radios menores a 15 mm en el perímetro. | Radio mínimo encontrado: 5.000 mm | Valores: 5.0, 10.0, 15.0 |  | Se recomienda revisar el plano. | El proceso continuará de todas formas.
+  [1c] Sin offset de perimetro.
+  --> 2 curvas cerradas BN: CON degrade
+  [1/7] Importando cajetines...
+  [2/7] Preparando layers de arte...
+  [4/8] Offset perimetro 0.5 mm...
+  [5/8] Hatch k2 (borde perímetro)...
+  [6/8] Hatch k (banda negra)...
+  [7] Reemplazando logo con LOGO1 del cajetin...
+  LOGO1 encontrados: 1  logo plano: 1
+  Logo reemplazado con LOGO1.
+  [7b] Centrando cajetin 1 en la pieza...
+  Cajetin 1 centrado.
+  [8/8] Degradé: offset BN interior...
+     longitud offset 2.5: 1913.16 mm  pepas: 638
+     Distribuyendo bloque '25' x638 sobre offset 2.5...
+  [9] Limpiando objetos sobrantes del import...
+  [10] Moviendo geometria original a PLANES...
+  Guardando en: c:\\Users\\abotero\\OneDrive - AGP GROUP\\Documentos\\macro_natalia\\1708 008 030 A_ARTE.3dm
+=== Arte Maker: COMPLETADO ===
+  [11] Abriendo ventana de cajetin...
+  DIBUJO -> 'MIGUEL B.' (1 texto(s))
+  VEHICULO -> 'TOYOTA RAV4 XA60 4D UTILITY 2026' (1 texto(s))
+  MODELO -> '2026' (1 texto(s))
+  COD PLANO -> '1867 000 001-002' (1 texto(s))
+  NAGS -> '1867' (1 texto(s))
+  VERSION -> '000' (1 texto(s))
+  PIEZA -> '001-002' (1 texto(s))
+  VITRO -> 'T-29685/T-29686' (1 texto(s))
+  MALLA -> '34429/34430' (1 texto(s))
+  FECHA -> '04.05.2026' (1 texto(s))
+  REVISADO -> 'Santiago P.' (1 texto(s))
+  MEDIDAS -> 'Milimetros' (1 texto(s))
+  VISTA -> 'Interna' (2 texto(s))
+  ESCALA -> '1:1' (1 texto(s))
+  Layers encontrados: 42
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$DIBUJO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VISTA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$COD PLANO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MODELO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$NAGS 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VITRO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MALLA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VEHICULO 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$VERSION 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$FECHA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$PIEZA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$MEDIDAS 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$ESCALA 1
+  Moviendo objetos de layer: CAJETIN 1::CAJETIN 1$REVISADO 1
+  Cajetin: 15 objeto(s) movidos al layer 'CAJETIN 1'.
+  Purge ejecutado.
+=== Arte Maker: FIN ===
