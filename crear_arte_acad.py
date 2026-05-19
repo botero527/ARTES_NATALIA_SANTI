@@ -28,6 +28,7 @@ LAYER_K2      = "k2"
 LAYER_K       = "k"
 LAYER_K3      = "k3"
 RADIO_MIN     = 15.0
+DEGRADE_INVERTIR = True   # True = REVERSE antes del DIVIDE (bolas grandes hacia BN)
 
 PAT_PERIM = ["PERIMETRO"]
 PAT_BN    = ["BANDA NEGRA", "BANDANEGRA", "BN", "PHANTOM", "BANDA"]
@@ -331,30 +332,40 @@ def dialogo_cajetin(nombre_plano=""):
 
 def actualizar_texto_cajetin(msp, valores):
     """
-    Busca objetos de texto en layers que contengan el nombre del campo
-    y reemplaza su contenido.
+    Actualiza textos en los sublayers de CAJETIN 1.
+    Formato exacto del layer: 'CAJETIN 1$CAMPO 1'
     """
-    CAMPOS = ["DIBUJO", "VEHICULO", "MODELO", "COD PLANO",
-              "NAGS", "VERSION", "PIEZA", "VITRO", "MALLA",
-              "FECHA", "REVISADO", "MEDIDAS", "VISTA", "ESCALA"]
+    CAMPO_LAYER = {
+        "DIBUJO":    "CAJETIN 1$DIBUJO 1",
+        "VEHICULO":  "CAJETIN 1$VEHICULO 1",
+        "MODELO":    "CAJETIN 1$MODELO 1",
+        "COD PLANO": "CAJETIN 1$COD PLANO 1",
+        "NAGS":      "CAJETIN 1$NAGS 1",
+        "VERSION":   "CAJETIN 1$VERSION 1",
+        "PIEZA":     "CAJETIN 1$PIEZA 1",
+        "VITRO":     "CAJETIN 1$VITRO 1",
+        "MALLA":     "CAJETIN 1$MALLA 1",
+        "FECHA":     "CAJETIN 1$FECHA 1",
+        "REVISADO":  "CAJETIN 1$REVISADO 1",
+        "MEDIDAS":   "CAJETIN 1$MEDIDAS 1",
+        "VISTA":     "CAJETIN 1$VISTA 1",
+        "ESCALA":    "CAJETIN 1$ESCALA 1",
+    }
 
     actualizados = 0
     for ent in msp:
         try:
             obj_name = ent.ObjectName
-            if obj_name not in ("AcDbText", "AcDbMText", "AcDbAttributeDefinition"):
+            if obj_name not in ("AcDbText", "AcDbMText"):
                 continue
-            layer_up = ent.Layer.upper()
-            for campo in CAMPOS:
-                if campo.upper() in layer_up and campo in valores and valores[campo]:
-                    try:
-                        if obj_name == "AcDbMText":
-                            ent.TextString = valores[campo]
-                        else:
-                            ent.TextString = valores[campo]
+            layer = ent.Layer.upper()
+            for campo, layer_target in CAMPO_LAYER.items():
+                if layer == layer_target.upper():
+                    val = valores.get(campo, "")
+                    if val:
+                        ent.TextString = val
                         actualizados += 1
-                    except Exception:
-                        pass
+                    break
         except Exception:
             pass
     log(f"  Cajetín: {actualizados} texto(s) actualizados.")
@@ -437,49 +448,84 @@ def main():
         perim_ent = perim_ents[0]
         log("  Perímetro encontrado ✔")
 
-        # ── Capturar logo del plano ANTES de importar cajetines ───────────────
-        logo_plano = ents_por_patron(msp, PAT_LOGO)
-        log(f"  Logo en plano: {len(logo_plano)} objeto(s)")
+        # ── Capturar handles del logo ANTES del import (para refetchear después) ─
+        _logo_handles = set()
+        for _e in ents_por_patron(msp, PAT_LOGO):
+            try: _logo_handles.add(_e.Handle)
+            except Exception: pass
+        log(f"  Logo en plano: {len(_logo_handles)} objeto(s)")
 
         # ── Registrar handles existentes ANTES del import ─────────────────────
         handles_antes = handles_actuales(msp)
 
-        # ── 6. Importar cajetines ─────────────────────────────────────────────
+        # ── 6. Importar cajetines vía COM InsertBlock (síncrono) ──────────────
         log("[6] Importando cajetines...")
         abs_caj = os.path.abspath(CAJETIN_DWG)
         if not os.path.isfile(abs_caj):
             log(f"  WARN: no se encontró {abs_caj}")
         else:
-            for intento in range(5):
+            try:
+                pt_ins = win32com.client.VARIANT(
+                    pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0, 0.0, 0.0])
+                blk_ref = msp.InsertBlock(pt_ins, abs_caj, 1.0, 1.0, 1.0, 0.0)
+                log("  Bloque insertado vía COM ✔")
+
+                # Nivel 1: explotar bloque raíz del DWG
+                nivel1 = []
                 try:
-                    doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-                    break
-                except Exception:
-                    log(f"  Reintentando import ({intento+1}/5)...")
-                    time.sleep(3)
-            time.sleep(3)
-            doc.SendCommand("EXPLODE\nL\n\n")
-            time.sleep(2)
+                    nivel1 = list(blk_ref.Explode())
+                    log(f"  Nivel 1 explosión: {len(nivel1)} objetos")
+                except Exception as ex1:
+                    log(f"  WARN explosión nivel 1: {ex1}")
 
-        # Identificar objetos del import y corregir colores ByBlock
+                # Nivel 2: explotar bloques anidados (CAJETIN 1, CAJETIN 2…)
+                n2 = 0
+                for e2 in nivel1:
+                    try:
+                        if e2.ObjectName == "AcDbBlockReference":
+                            e2.Explode()
+                            n2 += 1
+                    except Exception:
+                        pass
+                if n2:
+                    log(f"  Nivel 2 explosión: {n2} bloques anidados ✔")
+                time.sleep(0.5)
+                # Refrescar referencia de msp — el COM object no se actualiza automáticamente
+                msp = doc.ModelSpace
+
+            except Exception as e_ins:
+                log(f"  WARN InsertBlock COM falló ({e_ins}), usando SendCommand...")
+                doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
+                time.sleep(3)
+                doc.SendCommand("EXPLODE\nL\n\n")
+                time.sleep(2)
+                msp = doc.ModelSpace  # refrescar
+
+        # Identificar objetos nuevos y corregir colores ByBlock
         nuevos = objetos_nuevos(msp, handles_antes)
-        log(f"  Objetos importados: {len(nuevos)}")
-        corregir_colores_bylayer(nuevos)
-        log("  Colores ByLayer aplicados ✔")
-
-        # ── 7. Separar LOGO1 y CAJETIN del resto del import ───────────────────
-        logo1_ents  = [e for e in nuevos if "LOGO1" in e.Layer.upper()]
-        cajetin_ents = [e for e in nuevos if "CAJETIN" in e.Layer.upper()]
-        conservar_handles = set()
-        for e in logo1_ents + cajetin_ents:
-            try: conservar_handles.add(e.Handle)
+        log(f"  Objetos nuevos detectados: {len(nuevos)}")
+        # Debug: mostrar primeros 8 layers para diagnóstico
+        _layers_vistos = set()
+        for _e in nuevos[:40]:
+            try: _layers_vistos.add(_e.Layer)
             except Exception: pass
+        if _layers_vistos:
+            log(f"  Layers detectados: {sorted(_layers_vistos)[:8]}")
+        corregir_colores_bylayer(nuevos)
 
-        # Borrar todo lo del import que no sea CAJETIN ni LOGO1 (AYUDAS, etc.)
+        # ── 7. Buscar CAJETIN y LOGO1 directamente por layer (robusto) ───────
+        # Buscar en todo msp — funciona aunque el handle-tracking falle
+        logo1_ents   = [e for e in msp if "LOGO1"   in e.Layer.upper()]
+        cajetin_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
+        log(f"  CAJETIN en msp: {len(cajetin_ents)} obj  |  LOGO1: {len(logo1_ents)} obj")
+
+        # Borrar objetos nuevos que no son CAJETIN ni LOGO1 (AYUDAS, etc.)
+        conservar_layers = {"CAJETIN", "LOGO"}
         borrados = 0
         for e in nuevos:
             try:
-                if e.Handle not in conservar_handles:
+                ly = e.Layer.upper()
+                if not any(pat in ly for pat in conservar_layers):
                     e.Delete()
                     borrados += 1
             except Exception:
@@ -488,30 +534,39 @@ def main():
 
         # ── 8. Reemplazar logo ────────────────────────────────────────────────
         log("[8] Reemplazando logo...")
-        if logo_plano and logo1_ents:
-            cx_pl, cy_pl = centro_bbox(logo_plano)
-            cx_l1, cy_l1 = centro_bbox(logo1_ents)
-            if cx_pl is not None and cx_l1 is not None:
-                dx, dy = cx_pl - cx_l1, cy_pl - cy_l1
-                for e in logo1_ents:
-                    try: e.Move(pt(0,0), pt(dx,dy))
-                    except Exception: pass
-                for e in logo_plano:
-                    try: e.Delete()
-                    except Exception: pass
-                log("  Logo reemplazado ✔")
-        elif not logo1_ents:
-            log("  WARN: LOGO1 no encontrado en el cajetín.")
-        else:
-            log("  WARN: no hay logo en el plano — LOGO1 queda en su posición.")
+        # Refetchear logo del plano desde el msp fresco (por handle)
+        logo_plano = [e for e in msp
+                      if hasattr(e, 'Handle') and e.Handle in _logo_handles]
+        logo1_ents = [e for e in msp if "LOGO1" in e.Layer.upper()]
+        log(f"  logo_plano: {len(logo_plano)}  logo1: {len(logo1_ents)}")
+        try:
+            if logo_plano and logo1_ents:
+                cx_pl, cy_pl = centro_bbox(logo_plano)
+                cx_l1, cy_l1 = centro_bbox(logo1_ents)
+                if cx_pl is not None and cx_l1 is not None:
+                    dx, dy = cx_pl - cx_l1, cy_pl - cy_l1
+                    for e in logo1_ents:
+                        try: e.Move(pt(0,0), pt(dx,dy))
+                        except Exception: pass
+                    for e in logo_plano:
+                        try: e.Delete()
+                        except Exception: pass
+                    log("  Logo reemplazado ✔")
+            elif not logo1_ents:
+                log("  WARN: LOGO1 no encontrado en el cajetín.")
+            else:
+                log("  WARN: no hay logo en el plano.")
+        except Exception as e_logo:
+            log(f"  WARN logo: {e_logo}")
 
         # ── 9. Centrar cajetín sobre la pieza ─────────────────────────────────
         log("[9] Centrando cajetín...")
-        # Re-leer cajetin tras limpieza
         caj_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
+        log(f"  Buscando CAJETIN en msp: {len(caj_ents)} objetos")
         if caj_ents:
             cx_p, cy_p = centro_bbox([perim_ent])
             cx_c, cy_c = centro_bbox(caj_ents)
+            log(f"  Centro pieza: ({cx_p:.1f},{cy_p:.1f})  Centro cajetín: ({cx_c:.1f},{cy_c:.1f})")
             if cx_p is not None and cx_c is not None:
                 dx, dy = cx_p - cx_c, cy_p - cy_c
                 for e in caj_ents:
@@ -519,7 +574,7 @@ def main():
                     except Exception: pass
                 log("  Cajetín centrado ✔")
         else:
-            log("  WARN: no se encontró CAJETIN.")
+            log("  WARN: no se encontró ningún objeto con layer CAJETIN.")
 
         # ── 10. Crear layers de arte ──────────────────────────────────────────
         for lyr in [LAYER_PLANES, LAYER_K2, LAYER_K, LAYER_K3]:
@@ -572,6 +627,13 @@ def main():
                         time.sleep(1.5)
                         log(f"  Bloque '{BLOQUE_25}' registrado.")
 
+                    # Orientar el degradé: bolas grandes hacia el BN
+                    if DEGRADE_INVERTIR:
+                        h_rev = off_bn.Handle
+                        doc.SendCommand(f'REVERSE\n(handent "{h_rev}")\n\n')
+                        time.sleep(0.5)
+                        log("  REVERSE aplicado (DEGRADE_INVERTIR=True) ✔")
+
                     # Poner k3 como layer activo → DIVIDE inserta bloques en k3
                     doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
                     time.sleep(0.3)
@@ -602,12 +664,7 @@ def main():
             try: e.Layer = LAYER_PLANES
             except Exception: pass
 
-        # ── 16. Guardar ───────────────────────────────────────────────────────
-        log("[16] Guardando...")
-        doc.SendCommand("QSAVE\n")
-        time.sleep(1)
-
-        log("=== Arte base completado ✔ ===")
+        log("=== Arte base completado — revisa en AutoCAD antes de guardar ✔ ===")
 
         # ── 17. Diálogo del cajetín ───────────────────────────────────────────
         log("[17] Abriendo diálogo de cajetín...")
@@ -615,16 +672,14 @@ def main():
 
         if valores:
             actualizar_texto_cajetin(msp, valores)
-            doc.SendCommand("QSAVE\n")
-            time.sleep(1)
-            log("  Cajetín guardado ✔")
+            log("  Cajetín aplicado ✔ — guarda manualmente cuando estés conforme.")
         else:
             log("  Cajetín: cancelado por el usuario.")
 
-        # ── 18. Purge ─────────────────────────────────────────────────────────
-        log("[18] Purgando...")
-        doc.SendCommand("-PURGE\nA\n\nN\n")
-        time.sleep(1)
+        # ── 18. Purge — elimina layers vacíos (AYUDAS, etc.) ─────────────────
+        log("[18] Purgando layers y bloques sin usar...")
+        doc.SendCommand("-PURGE\nAll\n*\nN\n")
+        time.sleep(2)
 
         log("=== Arte completado ✔ ===")
         ctypes.windll.user32.MessageBoxW(0,
