@@ -28,7 +28,6 @@ LAYER_K2      = "k2"
 LAYER_K       = "k"
 LAYER_K3      = "k3"
 RADIO_MIN     = 15.0
-DEGRADE_INVERTIR = False  # False = sin REVERSE (bolas grandes hacia el BN/azul)
 
 PAT_PERIM = ["PERIMETRO"]
 PAT_BN    = ["BANDA NEGRA", "BANDANEGRA", "BN", "PHANTOM", "BANDA"]
@@ -652,32 +651,57 @@ def main():
                         time.sleep(1.5)
                         log(f"  Bloque '{BLOQUE_25}' registrado.")
 
-                    # Orientar el degradé: bolas grandes hacia el BN
-                    if DEGRADE_INVERTIR:
+                    def ejecutar_divide(handle_curva):
+                        doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
+                        time.sleep(0.3)
+                        doc.SendCommand(
+                            f'DIVIDE\n'
+                            f'(handent "{handle_curva}")\n'
+                            f'B\n'
+                            f'{BLOQUE_25}\n'
+                            f'Y\n'
+                            f'{n_pepas}\n'
+                        )
+                        espera = max(4.0, n_pepas * 0.02)
+                        log(f"  Esperando {espera:.1f}s (DIVIDE)...")
+                        time.sleep(espera)
+                        doc.SendCommand("CLAYER\n0\n")
+                        time.sleep(0.3)
+
+                    def borrar_k3():
+                        _msp = doc.ModelSpace
+                        for _e in _msp:
+                            try:
+                                if _e.Layer.upper() == LAYER_K3.upper():
+                                    _e.Delete()
+                            except Exception:
+                                pass
+                        time.sleep(0.3)
+
+                    # Primera pasada sin REVERSE
+                    ejecutar_divide(off_bn.Handle)
+                    log("  Degradé en layer k3 ✔")
+
+                    # Preguntar al usuario si el degradé quedó correcto
+                    respuesta = ctypes.windll.user32.MessageBoxW(
+                        0,
+                        "¿El degradé quedó correcto?\n"
+                        "(Las bolas GRANDES deben estar hacia el borde azul/BN)\n\n"
+                        "Sí = quedó bien\n"
+                        "No = invertir automáticamente",
+                        "AGP Arte Maker — Verificar degradé",
+                        0x24   # MB_YESNO | MB_ICONQUESTION
+                    )
+                    if respuesta == 7:   # IDNO → invertir
+                        log("  Invirtiendo degradé...")
+                        borrar_k3()
                         h_rev = off_bn.Handle
                         doc.SendCommand(f'REVERSE\n(handent "{h_rev}")\n\n')
-                        time.sleep(0.5)
-                        log("  REVERSE aplicado (DEGRADE_INVERTIR=True) ✔")
-
-                    # Poner k3 como layer activo → DIVIDE inserta bloques en k3
-                    doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
-                    time.sleep(0.3)
-
-                    handle = off_bn.Handle
-                    doc.SendCommand(
-                        f'DIVIDE\n'
-                        f'(handent "{handle}")\n'
-                        f'B\n'
-                        f'{BLOQUE_25}\n'
-                        f'Y\n'
-                        f'{n_pepas}\n'
-                    )
-                    espera = max(4.0, n_pepas * 0.02)
-                    log(f"  Esperando {espera:.1f}s (DIVIDE)...")
-                    time.sleep(espera)
-                    doc.SendCommand("CLAYER\n0\n")
-                    time.sleep(0.3)
-                    log("  Degradé en layer k3 ✔")
+                        time.sleep(0.6)
+                        ejecutar_divide(off_bn.Handle)
+                        log("  Degradé invertido ✔")
+                    else:
+                        log("  Degradé confirmado por usuario ✔")
             else:
                 log("  WARN: no se pudo crear offset interior de BN.")
         else:
