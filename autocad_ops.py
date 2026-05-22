@@ -164,6 +164,10 @@ class AutoCADMotor:
 
     def quit(self):
         try:
+            self.acad = None
+        except Exception:
+            pass
+        try:
             pythoncom.CoUninitialize()
         except Exception:
             pass

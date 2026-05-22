@@ -231,35 +231,23 @@ _C = {
 
 def _rounded_btn(parent, text, cmd, color, hover_color, fg="#FFFFFF",
                  width=160, height=40, radius=10, font_size=11):
-    """Botón con fondo de color usando Canvas (look moderno)."""
+    """Botón estilizado compatible con Python 3.14 / Tk 9."""
     import tkinter as tk
-    cv = tk.Canvas(parent, width=width, height=height,
-                   bg=parent["bg"], highlightthickness=0, bd=0, cursor="hand2")
-
-    def draw(c):
-        cv.delete("all")
-        r = radius
-        cv.create_arc(0, 0, r*2, r*2, start=90, extent=90, fill=c, outline=c)
-        cv.create_arc(width-r*2, 0, width, r*2, start=0, extent=90, fill=c, outline=c)
-        cv.create_arc(0, height-r*2, r*2, height, start=180, extent=90, fill=c, outline=c)
-        cv.create_arc(width-r*2, height-r*2, width, height, start=270, extent=90, fill=c, outline=c)
-        cv.create_rectangle(r, 0, width-r, height, fill=c, outline=c)
-        cv.create_rectangle(0, r, width, height-r, fill=c, outline=c)
-        cv.create_text(width//2, height//2, text=text, fill=fg,
-                       font=("Segoe UI", font_size, "bold"))
-
-    draw(color)
-    cv.bind("<Enter>",    lambda _: draw(hover_color))
-    cv.bind("<Leave>",    lambda _: draw(color))
-    cv.bind("<Button-1>", lambda _: cmd())
-    return cv
+    btn = tk.Button(parent, text=text, command=cmd,
+                    bg=color, fg=fg, activebackground=hover_color,
+                    activeforeground=fg, relief="flat", bd=0,
+                    font=("Segoe UI", font_size, "bold"),
+                    padx=16, pady=8, cursor="hand2")
+    btn.bind("<Enter>", lambda _: btn.configure(bg=hover_color))
+    btn.bind("<Leave>", lambda _: btn.configure(bg=color))
+    return btn
 
 
 def _section_header(parent, text):
     import tkinter as tk
     f = tk.Frame(parent, bg=_C["bg"])
     tk.Label(f, text=text, font=("Segoe UI", 8, "bold"),
-             fg=_C["accent"], bg=_C["bg"]).pack(side="left", padx=(0, 8))
+             fg=_C["accent"], bg=_C["bg"]).pack(side="left", padx=8)
     tk.Frame(f, bg=_C["sep"], height=1).pack(side="left", fill="x", expand=True, pady=1)
     return f
 
@@ -315,7 +303,18 @@ def dialogo_cajetin(nombre_plano=""):
 
     resultado = [None]
 
-    root = tk.Tk()
+    # Si ya hay una instancia Tk corriendo (ej: arte_maker.py), usar Toplevel modal
+    try:
+        _existing_root = tk._default_root
+    except Exception:
+        _existing_root = None
+
+    if _existing_root is not None:
+        root = tk.Toplevel(_existing_root)
+        root.grab_set()
+    else:
+        root = tk.Tk()
+
     root.title("AGP Arte Maker")
     root.resizable(True, True)
     root.attributes("-topmost", True)
@@ -359,13 +358,17 @@ def dialogo_cajetin(nombre_plano=""):
 
     # Scroll con rueda del ratón
     def _on_mousewheel(e):
-        canvas_scroll.yview_scroll(int(-1*(e.delta/120)), "units")
+        try:
+            canvas_scroll.yview_scroll(int(-1*(e.delta/120)), "units")
+        except Exception:
+            pass
     root.bind_all("<MouseWheel>", _on_mousewheel)
+    root.bind("<Destroy>", lambda _: root.unbind_all("<MouseWheel>"))
 
     entries = {}
 
     for sec_titulo, filas in SECCIONES:
-        _section_header(body, sec_titulo).pack(fill="x", pady=(14, 8))
+        _section_header(body, sec_titulo).pack(fill="x", pady=8)
 
         for campo, etiqueta, default in filas:
             row = tk.Frame(body, bg=_C["bg"], pady=3)
@@ -373,7 +376,7 @@ def dialogo_cajetin(nombre_plano=""):
 
             lbl = tk.Label(row, text=etiqueta, font=("Segoe UI", 9),
                            fg=_C["muted"], bg=_C["bg"], width=17, anchor="e")
-            lbl.pack(side="left", padx=(0, 10))
+            lbl.pack(side="left", padx=10)
 
             ent, var = _make_entry(row, width_chars=30)
             ent.pack(side="left", ipady=5)
@@ -381,7 +384,7 @@ def dialogo_cajetin(nombre_plano=""):
             # badge "auto" si aplica
             if default == "auto":
                 tk.Label(row, text="auto", font=("Segoe UI", 7, "bold"),
-                         fg=_C["accent"], bg=_C["bg"], padx=4).pack(side="left", padx=(4, 0))
+                         fg=_C["accent"], bg=_C["bg"], padx=4).pack(side="left", padx=4)
 
             if isinstance(default, str) and default != "auto":
                 ent.insert(0, default)
@@ -450,7 +453,7 @@ def dialogo_cajetin(nombre_plano=""):
         root.destroy()
 
     _rounded_btn(btn_area, "✔  Aplicar al cajetín", aceptar,
-                 _C["accent"], _C["accent2"], width=200, height=42).pack(side="left", padx=(0, 12))
+                 _C["accent"], _C["accent2"], width=200, height=42).pack(side="left", padx=12)
     _rounded_btn(btn_area, "✕  Cancelar", cancelar,
                  "#2A2A3A", "#3A3A4A", fg=_C["muted"], width=130, height=42).pack(side="left")
 
@@ -468,7 +471,10 @@ def dialogo_cajetin(nombre_plano=""):
     w       = max(w, 560)
     root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
-    root.mainloop()
+    if _existing_root is not None:
+        _existing_root.wait_window(root)
+    else:
+        root.mainloop()
     return resultado[0]
 
 
@@ -517,6 +523,375 @@ def actualizar_texto_cajetin(msp, valores):
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
+def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
+    """
+    Pipeline completo de creación de arte.
+    doc            : AutoCAD Document COM object ya abierto.
+    log_fn         : función de logging (default: log del módulo).
+    valores_cajetin: dict con datos del cajetín; si None muestra el diálogo.
+    ruta_salida    : ruta .dwg donde guardar; si None no guarda.
+    """
+    if log_fn is None:
+        log_fn = log
+
+    msp = doc.ModelSpace
+    nombre_plano = os.path.splitext(doc.Name)[0]
+    log_fn(f"\n=== AGP Arte Maker AutoCAD: {doc.Name} ===")
+
+    # ── 1. Quitar GlobalWidth ──────────────────────────────────────────────
+    log_fn("[1] Limpiando GlobalWidth a 0...")
+    for e in msp:
+        try:
+            if "Polyline" in e.ObjectName:
+                e.ConstantWidth = 0.0
+                e.Update()
+        except Exception:
+            pass
+
+    # ── 2. Verificar contornos cerrados ───────────────────────────────────
+    log_fn("[2] Verificando contornos cerrados...")
+    no_cerrados = []
+    for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
+        try:
+            if not e.Closed:
+                no_cerrados.append(e.Layer)
+        except Exception:
+            pass
+    if no_cerrados:
+        msg = "ALERTA: Contornos NO cerrados en:\n" + "\n".join(set(no_cerrados)) + \
+              "\n\nCorrige y vuelve a ejecutar."
+        log_fn(f"ERROR: {msg}")
+        alerta_stop("AGP Arte Maker — Error", msg)
+        return
+    log_fn("  Todos los contornos cerrados ✔")
+
+    # ── 3. Radios mínimos ─────────────────────────────────────────────────
+    log_fn(f"[3] Verificando radios (mín {RADIO_MIN} mm)...")
+    radios_malos = []
+    for e in ents_por_patron(msp, PAT_PERIM):
+        radios_malos += verificar_radios(e, RADIO_MIN)
+    if radios_malos:
+        r_min = min(radios_malos)
+        log_fn(f"  WARN radios: {sorted(set(radios_malos))[:8]}")
+        alerta("AGP Arte Maker — Advertencia radios",
+               f"Se detectaron radios menores a {RADIO_MIN} mm en el perímetro.\n"
+               f"Radio mínimo encontrado: {r_min:.3f} mm\n\nEl proceso continuará.")
+    else:
+        log_fn("  Radios OK ✔")
+
+    # ── 4. Detectar degradé ───────────────────────────────────────────────
+    bn_ents = sorted(
+        [e for e in ents_por_patron(msp, PAT_BN)
+         if e.Closed and "Polyline" in e.ObjectName],
+        key=area_bbox, reverse=True)
+    CON_DEGRADE = len(bn_ents) >= 2
+    bn_ent = bn_ents[0] if bn_ents else None
+    log_fn(f"[4] BN encontrados: {len(bn_ents)} → {'CON degradé' if CON_DEGRADE else 'SIN degradé'}")
+
+    # ── 5. Perímetro ──────────────────────────────────────────────────────
+    perim_ents = sorted(
+        [e for e in ents_por_patron(msp, PAT_PERIM)
+         if e.Closed and "Polyline" in e.ObjectName],
+        key=area_bbox, reverse=True)
+    if not perim_ents:
+        alerta_stop("AGP Arte Maker — Error", "No se encontró curva PERIMETRO cerrada.")
+        return
+    perim_ent = perim_ents[0]
+    log_fn("  Perímetro encontrado ✔")
+
+    # ── Capturar handles del logo ANTES del import ────────────────────────
+    _logo_handles = set()
+    for _e in ents_por_patron(msp, PAT_LOGO):
+        try: _logo_handles.add(_e.Handle)
+        except Exception: pass
+    log_fn(f"  Logo en plano: {len(_logo_handles)} objeto(s)")
+
+    handles_antes = handles_actuales(msp)
+
+    # ── 6. Importar cajetines ──────────────────────────────────────────────
+    log_fn("[6] Importando cajetines...")
+    abs_caj = os.path.abspath(CAJETIN_DWG)
+    if not os.path.isfile(abs_caj):
+        log_fn(f"  WARN: no se encontró {abs_caj}")
+    else:
+        try:
+            pt_ins = win32com.client.VARIANT(
+                pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0, 0.0, 0.0])
+            blk_ref = msp.InsertBlock(pt_ins, abs_caj, 1.0, 1.0, 1.0, 0.0)
+            log_fn("  Bloque insertado vía COM ✔")
+
+            nivel1 = []
+            try:
+                nivel1 = list(blk_ref.Explode())
+                log_fn(f"  Nivel 1 explosión: {len(nivel1)} objetos")
+            except Exception as ex1:
+                log_fn(f"  WARN explosión nivel 1: {ex1}")
+
+            n2 = 0
+            for e2 in nivel1:
+                try:
+                    if e2.ObjectName == "AcDbBlockReference":
+                        e2.Explode()
+                        n2 += 1
+                except Exception:
+                    pass
+            if n2:
+                log_fn(f"  Nivel 2 explosión: {n2} bloques anidados ✔")
+            time.sleep(0.5)
+            msp = doc.ModelSpace
+
+        except Exception as e_ins:
+            log_fn(f"  WARN InsertBlock COM falló ({e_ins}), usando SendCommand...")
+            doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
+            time.sleep(3)
+            doc.SendCommand("EXPLODE\nL\n\n")
+            time.sleep(2)
+            msp = doc.ModelSpace
+
+    nuevos = objetos_nuevos(msp, handles_antes)
+    log_fn(f"  Objetos nuevos detectados: {len(nuevos)}")
+    _layers_vistos = set()
+    for _e in nuevos[:40]:
+        try: _layers_vistos.add(_e.Layer)
+        except Exception: pass
+    if _layers_vistos:
+        log_fn(f"  Layers detectados: {sorted(_layers_vistos)[:8]}")
+    corregir_colores_bylayer(nuevos)
+
+    # ── 7. Buscar CAJETIN y LOGO1 ─────────────────────────────────────────
+    logo1_ents   = [e for e in msp if "LOGO1"   in e.Layer.upper()]
+    cajetin_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
+    log_fn(f"  CAJETIN en msp: {len(cajetin_ents)} obj  |  LOGO1: {len(logo1_ents)} obj")
+
+    borrados = 0
+    for e in nuevos:
+        try:
+            ly = e.Layer.upper()
+            if "CAJETIN 1" in ly or "LOGO1" in ly:
+                continue
+            e.Delete()
+            borrados += 1
+        except Exception:
+            pass
+    log_fn(f"  Limpieza: {borrados} objeto(s) sobrantes eliminados ✔")
+    msp = doc.ModelSpace
+
+    # ── 8. Reemplazar logo ────────────────────────────────────────────────
+    log_fn("[8] Reemplazando logo...")
+    logo_plano = []
+    logo1_ents = []
+    for _e in msp:
+        try:
+            _h = _e.Handle
+            _ly = _e.Layer.upper()
+            if _h in _logo_handles:
+                logo_plano.append(_e)
+            if "LOGO1" in _ly:
+                logo1_ents.append(_e)
+        except Exception:
+            pass
+    log_fn(f"  logo_plano: {len(logo_plano)}  logo1: {len(logo1_ents)}")
+    try:
+        if logo_plano and logo1_ents:
+            cx_pl, cy_pl = centro_bbox(logo_plano)
+            cx_l1, cy_l1 = centro_bbox(logo1_ents)
+            if cx_pl is not None and cx_l1 is not None:
+                dx, dy = cx_pl - cx_l1, cy_pl - cy_l1
+                for e in logo1_ents:
+                    try: e.Move(pt(0,0), pt(dx,dy))
+                    except Exception: pass
+                for e in logo_plano:
+                    try: e.Delete()
+                    except Exception: pass
+                log_fn("  Logo reemplazado ✔")
+        elif not logo1_ents:
+            log_fn("  WARN: LOGO1 no encontrado en el cajetín.")
+        else:
+            log_fn("  WARN: no hay logo en el plano.")
+    except Exception as e_logo:
+        log_fn(f"  WARN logo: {e_logo}")
+
+    # ── 9. Centrar cajetín sobre la pieza ─────────────────────────────────
+    log_fn("[9] Centrando cajetín...")
+    msp = doc.ModelSpace
+    caj_ents = []
+    for _e in msp:
+        try:
+            if "CAJETIN" in _e.Layer.upper():
+                caj_ents.append(_e)
+        except Exception:
+            pass
+    log_fn(f"  Buscando CAJETIN en msp: {len(caj_ents)} objetos")
+    if caj_ents:
+        cx_p, cy_p = centro_bbox([perim_ent])
+        cx_c, cy_c = centro_bbox(caj_ents)
+        log_fn(f"  Centro pieza: ({cx_p:.1f},{cy_p:.1f})  Centro cajetín: ({cx_c:.1f},{cy_c:.1f})")
+        if cx_p is not None and cx_c is not None:
+            dx, dy = cx_p - cx_c, cy_p - cy_c
+            for e in caj_ents:
+                try: e.Move(pt(0,0), pt(dx,dy))
+                except Exception: pass
+            log_fn("  Cajetín centrado ✔")
+    else:
+        log_fn("  WARN: no se encontró ningún objeto con layer CAJETIN.")
+
+    # ── 10. Crear layers de arte ──────────────────────────────────────────
+    for lyr in [LAYER_PLANES, LAYER_K2, LAYER_K, LAYER_K3]:
+        asegurar_layer(doc, lyr)
+
+    # ── 11. Offset perímetro 0.5 ──────────────────────────────────────────
+    log_fn(f"[11] Offset perímetro {OFFSET_PERIM} mm...")
+    off_perim = offset_inward(perim_ent, OFFSET_PERIM)
+    if not off_perim:
+        alerta_stop("AGP Arte Maker — Error", "No se pudo crear offset del perímetro.")
+        return
+    off_perim.Layer = LAYER_PLANES
+
+    # ── 12. Hatch k2 ──────────────────────────────────────────────────────
+    log_fn("[12] Hatch k2...")
+    hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
+    time.sleep(1.0)
+
+    # ── 13. Hatch k ───────────────────────────────────────────────────────
+    log_fn("[13] Hatch k...")
+    if bn_ent:
+        hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
+        time.sleep(1.0)
+    else:
+        log_fn("  WARN: no se encontró banda negra.")
+
+    # ── 14. Degradé ───────────────────────────────────────────────────────
+    if CON_DEGRADE and bn_ent:
+        log_fn(f"[14] Degradé: offset BN {OFFSET_BN_DEG} mm...")
+        off_bn = offset_inward(bn_ent, OFFSET_BN_DEG)
+        if off_bn:
+            off_bn.Layer = LAYER_PLANES
+            longitud = float(off_bn.Length)
+            n_pepas  = int(round(longitud / DIVISOR_DEG))
+            log_fn(f"  Longitud: {longitud:.2f} mm  pepas: {n_pepas}")
+
+            if n_pepas > 0:
+                bloque_existe = False
+                try:
+                    doc.Blocks.Item(BLOQUE_25)
+                    bloque_existe = True
+                    log_fn(f"  Bloque '{BLOQUE_25}' ya existe.")
+                except Exception:
+                    pass
+
+                if not bloque_existe:
+                    log_fn(f"  Importando bloque '{BLOQUE_25}' desde cajetines...")
+                    doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
+                    time.sleep(4)
+                    doc.SendCommand("ERASE\nL\n\n")
+                    time.sleep(1.5)
+                    log_fn(f"  Bloque '{BLOQUE_25}' registrado.")
+
+                def ejecutar_divide(handle_curva):
+                    doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
+                    time.sleep(0.3)
+                    doc.SendCommand(
+                        f'DIVIDE\n'
+                        f'(handent "{handle_curva}")\n'
+                        f'B\n'
+                        f'{BLOQUE_25}\n'
+                        f'Y\n'
+                        f'{n_pepas}\n'
+                    )
+                    espera = max(4.0, n_pepas * 0.02)
+                    log_fn(f"  Esperando {espera:.1f}s (DIVIDE)...")
+                    time.sleep(espera)
+                    doc.SendCommand("CLAYER\n0\n")
+                    time.sleep(0.3)
+
+                def borrar_k3():
+                    _msp = doc.ModelSpace
+                    for _e in _msp:
+                        try:
+                            if _e.Layer.upper() == LAYER_K3.upper():
+                                _e.Delete()
+                        except Exception:
+                            pass
+                    time.sleep(0.3)
+
+                ejecutar_divide(off_bn.Handle)
+                log_fn("  Degradé en layer k3 ✔")
+
+                respuesta = ctypes.windll.user32.MessageBoxW(
+                    0,
+                    "¿El degradé quedó correcto?\n"
+                    "(Las bolas GRANDES deben estar hacia el borde azul/BN)\n\n"
+                    "Sí = quedó bien\n"
+                    "No = invertir automáticamente",
+                    "AGP Arte Maker — Verificar degradé",
+                    0x24
+                )
+                if respuesta == 7:
+                    log_fn("  Invirtiendo degradé...")
+                    borrar_k3()
+                    h_rev = off_bn.Handle
+                    doc.SendCommand(f'REVERSE\n(handent "{h_rev}")\n\n')
+                    time.sleep(0.6)
+                    ejecutar_divide(off_bn.Handle)
+                    log_fn("  Degradé invertido ✔")
+                else:
+                    log_fn("  Degradé confirmado por usuario ✔")
+        else:
+            log_fn("  WARN: no se pudo crear offset interior de BN.")
+    else:
+        log_fn("[14] Sin degradé — omitido.")
+
+    # ── 15. Mover PERIMETRO/BN a PLANES ──────────────────────────────────
+    log_fn("[15] Moviendo geometría original a PLANES...")
+    time.sleep(1.5)
+    msp = doc.ModelSpace
+    for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
+        try: e.Layer = LAYER_PLANES
+        except Exception: pass
+
+    log_fn("=== Arte base completado ✔ ===")
+
+    # ── 17. Cajetín ───────────────────────────────────────────────────────
+    log_fn("[17] Aplicando datos del cajetín...")
+    if valores_cajetin is None:
+        valores_cajetin = dialogo_cajetin(nombre_plano)
+
+    if valores_cajetin:
+        actualizar_texto_cajetin(doc.ModelSpace, valores_cajetin)
+        log_fn("  Cajetín aplicado ✔")
+    else:
+        log_fn("  Cajetín: cancelado por el usuario.")
+
+    # ── 18. Consolidar sublayers CAJETIN 1$* → CAJETIN1 ─────────────────
+    log_fn("[18] Consolidando layers CAJETIN 1$* → CAJETIN1...")
+    asegurar_layer(doc, "CAJETIN1")
+    consolidados = 0
+    for _e in doc.ModelSpace:
+        try:
+            if _e.Layer.upper().startswith("CAJETIN 1$") or _e.Layer.upper() == "CAJETIN 1":
+                _e.Layer = "CAJETIN1"
+                consolidados += 1
+        except Exception:
+            pass
+    log_fn(f"  {consolidados} objeto(s) movidos a CAJETIN1 ✔")
+
+    # ── 19. Purge ─────────────────────────────────────────────────────────
+    log_fn("[19] Purgando layers y bloques sin usar...")
+    doc.SendCommand("-PURGE\nAll\n*\nN\n")
+    time.sleep(2)
+
+    # ── Guardar si se indicó ruta ─────────────────────────────────────────
+    if ruta_salida:
+        abs_salida = os.path.abspath(ruta_salida)
+        os.makedirs(os.path.dirname(abs_salida), exist_ok=True)
+        doc.SaveAs(abs_salida)
+        log_fn(f"  Guardado en: {abs_salida} ✔")
+    else:
+        doc.SendCommand("QSAVE \n")
+
+    log_fn("=== Arte completado ✔ ===")
+
+
 def main():
     pythoncom.CoInitialize()
     try:
@@ -525,371 +900,11 @@ def main():
         except Exception:
             alerta_stop("AGP Arte Maker", "AutoCAD no está abierto.\nAbre AutoCAD con el plano y vuelve a intentarlo.")
             return
-
         doc = acad.ActiveDocument
-        msp = doc.ModelSpace
-        nombre_plano = os.path.splitext(doc.Name)[0]
-        log(f"\n=== AGP Arte Maker AutoCAD: {doc.Name} ===")
-
-        # ── 1. Quitar GlobalWidth ──────────────────────────────────────────────
-        log("[1] Limpiando GlobalWidth a 0...")
-        for e in msp:
-            try:
-                if "Polyline" in e.ObjectName:
-                    e.ConstantWidth = 0.0
-                    e.Update()
-            except Exception:
-                pass
-
-        # ── 2. Verificar contornos cerrados ───────────────────────────────────
-        log("[2] Verificando contornos cerrados...")
-        no_cerrados = []
-        for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
-            try:
-                if not e.Closed:
-                    no_cerrados.append(e.Layer)
-            except Exception:
-                pass
-        if no_cerrados:
-            msg = "ALERTA: Contornos NO cerrados en:\n" + "\n".join(set(no_cerrados)) + \
-                  "\n\nCorrige y vuelve a ejecutar."
-            log(f"ERROR: {msg}")
-            alerta_stop("AGP Arte Maker — Error", msg)
-            return
-        log("  Todos los contornos cerrados ✔")
-
-        # ── 3. Radios mínimos ─────────────────────────────────────────────────
-        log(f"[3] Verificando radios (mín {RADIO_MIN} mm)...")
-        radios_malos = []
-        for e in ents_por_patron(msp, PAT_PERIM):
-            radios_malos += verificar_radios(e, RADIO_MIN)
-        if radios_malos:
-            r_min = min(radios_malos)
-            log(f"  WARN radios: {sorted(set(radios_malos))[:8]}")
-            alerta("AGP Arte Maker — Advertencia radios",
-                   f"Se detectaron radios menores a {RADIO_MIN} mm en el perímetro.\n"
-                   f"Radio mínimo encontrado: {r_min:.3f} mm\n\nEl proceso continuará.")
-        else:
-            log("  Radios OK ✔")
-
-        # ── 4. Detectar degradé ───────────────────────────────────────────────
-        bn_ents = sorted(
-            [e for e in ents_por_patron(msp, PAT_BN)
-             if e.Closed and "Polyline" in e.ObjectName],
-            key=area_bbox, reverse=True)
-        CON_DEGRADE = len(bn_ents) >= 2
-        bn_ent = bn_ents[0] if bn_ents else None
-        log(f"[4] BN encontrados: {len(bn_ents)} → {'CON degradé' if CON_DEGRADE else 'SIN degradé'}")
-
-        # ── 5. Perímetro ──────────────────────────────────────────────────────
-        perim_ents = sorted(
-            [e for e in ents_por_patron(msp, PAT_PERIM)
-             if e.Closed and "Polyline" in e.ObjectName],
-            key=area_bbox, reverse=True)
-        if not perim_ents:
-            alerta_stop("AGP Arte Maker — Error", "No se encontró curva PERIMETRO cerrada.")
-            return
-        perim_ent = perim_ents[0]
-        log("  Perímetro encontrado ✔")
-
-        # ── Capturar handles del logo ANTES del import (para refetchear después) ─
-        _logo_handles = set()
-        for _e in ents_por_patron(msp, PAT_LOGO):
-            try: _logo_handles.add(_e.Handle)
-            except Exception: pass
-        log(f"  Logo en plano: {len(_logo_handles)} objeto(s)")
-
-        # ── Registrar handles existentes ANTES del import ─────────────────────
-        handles_antes = handles_actuales(msp)
-
-        # ── 6. Importar cajetines vía COM InsertBlock (síncrono) ──────────────
-        log("[6] Importando cajetines...")
-        abs_caj = os.path.abspath(CAJETIN_DWG)
-        if not os.path.isfile(abs_caj):
-            log(f"  WARN: no se encontró {abs_caj}")
-        else:
-            try:
-                pt_ins = win32com.client.VARIANT(
-                    pythoncom.VT_ARRAY | pythoncom.VT_R8, [0.0, 0.0, 0.0])
-                blk_ref = msp.InsertBlock(pt_ins, abs_caj, 1.0, 1.0, 1.0, 0.0)
-                log("  Bloque insertado vía COM ✔")
-
-                # Nivel 1: explotar bloque raíz del DWG
-                nivel1 = []
-                try: 
-                    nivel1 = list(blk_ref.Explode())
-                    log(f"  Nivel 1 explosión: {len(nivel1)} objetos")
-                except Exception as ex1:
-                    log(f"  WARN explosión nivel 1: {ex1}")
-
-                # Nivel 2: explotar bloques anidados (CAJETIN 1, CAJETIN 2…)
-                n2 = 0
-                for e2 in nivel1:
-                    try:
-                        if e2.ObjectName == "AcDbBlockReference":
-                            e2.Explode()
-                            n2 += 1
-                    except Exception:
-                        pass
-                if n2:
-                    log(f"  Nivel 2 explosión: {n2} bloques anidados ✔")
-                time.sleep(0.5)
-                # Refrescar referencia de msp — el COM object no se actualiza automáticamente
-                msp = doc.ModelSpace
-
-            except Exception as e_ins:
-                log(f"  WARN InsertBlock COM falló ({e_ins}), usando SendCommand...")
-                doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-                time.sleep(3)
-                doc.SendCommand("EXPLODE\nL\n\n")
-                time.sleep(2)
-                msp = doc.ModelSpace  # refrescar
-
-        # Identificar objetos nuevos y corregir colores ByBlock
-        nuevos = objetos_nuevos(msp, handles_antes)
-        log(f"  Objetos nuevos detectados: {len(nuevos)}")
-        # Debug: mostrar primeros 8 layers para diagnóstico
-        _layers_vistos = set()
-        for _e in nuevos[:40]:
-            try: _layers_vistos.add(_e.Layer)
-            except Exception: pass
-        if _layers_vistos:
-            log(f"  Layers detectados: {sorted(_layers_vistos)[:8]}")
-        corregir_colores_bylayer(nuevos)
-
-        # ── 7. Buscar CAJETIN y LOGO1 directamente por layer (robusto) ───────
-        # Buscar en todo msp — funciona aunque el handle-tracking falle
-        logo1_ents   = [e for e in msp if "LOGO1"   in e.Layer.upper()]
-        cajetin_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
-        log(f"  CAJETIN en msp: {len(cajetin_ents)} obj  |  LOGO1: {len(logo1_ents)} obj")
-
-        # Borrar objetos nuevos que no son CAJETIN 1 ni LOGO1 (borra CAJETIN 2, LOGO2, AYUDAS, etc.)
-        borrados = 0
-        for e in nuevos:
-            try:
-                ly = e.Layer.upper()
-                # Conservar solo CAJETIN 1 (con espacio) y LOGO1
-                if "CAJETIN 1" in ly or "LOGO1" in ly:
-                    continue
-                e.Delete()
-                borrados += 1
-            except Exception:
-                pass
-        log(f"  Limpieza: {borrados} objeto(s) sobrantes eliminados ✔")
-        msp = doc.ModelSpace   # refrescar tras borrar 150+ objetos
-
-        # ── 8. Reemplazar logo ────────────────────────────────────────────────
-        log("[8] Reemplazando logo...")
-        # Refetchear logo del plano desde el msp fresco (por handle)
-        logo_plano = []
-        logo1_ents = []
-        for _e in msp:
-            try:
-                _h = _e.Handle
-                _ly = _e.Layer.upper()
-                if _h in _logo_handles:
-                    logo_plano.append(_e)
-                if "LOGO1" in _ly:
-                    logo1_ents.append(_e)
-            except Exception:
-                pass
-        log(f"  logo_plano: {len(logo_plano)}  logo1: {len(logo1_ents)}")
-        try:
-            if logo_plano and logo1_ents:
-                cx_pl, cy_pl = centro_bbox(logo_plano)
-                cx_l1, cy_l1 = centro_bbox(logo1_ents)
-                if cx_pl is not None and cx_l1 is not None:
-                    dx, dy = cx_pl - cx_l1, cy_pl - cy_l1
-                    for e in logo1_ents:
-                        try: e.Move(pt(0,0), pt(dx,dy))
-                        except Exception: pass
-                    for e in logo_plano:
-                        try: e.Delete()
-                        except Exception: pass
-                    log("  Logo reemplazado ✔")
-            elif not logo1_ents:
-                log("  WARN: LOGO1 no encontrado en el cajetín.")
-            else:
-                log("  WARN: no hay logo en el plano.")
-        except Exception as e_logo:
-            log(f"  WARN logo: {e_logo}")
-
-        # ── 9. Centrar cajetín sobre la pieza ─────────────────────────────────
-        log("[9] Centrando cajetín...")
-        msp = doc.ModelSpace   # refrescar tras operaciones de logo
-        caj_ents = []
-        for _e in msp:
-            try:
-                if "CAJETIN" in _e.Layer.upper():
-                    caj_ents.append(_e)
-            except Exception:
-                pass
-        log(f"  Buscando CAJETIN en msp: {len(caj_ents)} objetos")
-        if caj_ents:
-            cx_p, cy_p = centro_bbox([perim_ent])
-            cx_c, cy_c = centro_bbox(caj_ents)
-            log(f"  Centro pieza: ({cx_p:.1f},{cy_p:.1f})  Centro cajetín: ({cx_c:.1f},{cy_c:.1f})")
-            if cx_p is not None and cx_c is not None:
-                dx, dy = cx_p - cx_c, cy_p - cy_c
-                for e in caj_ents:
-                    try: e.Move(pt(0,0), pt(dx,dy))
-                    except Exception: pass
-                log("  Cajetín centrado ✔")
-        else:
-            log("  WARN: no se encontró ningún objeto con layer CAJETIN.")
-
-        # ── 10. Crear layers de arte ──────────────────────────────────────────
-        for lyr in [LAYER_PLANES, LAYER_K2, LAYER_K, LAYER_K3]:
-            asegurar_layer(doc, lyr)
-
-        # ── 11. Offset perímetro 0.5 ──────────────────────────────────────────
-        log(f"[11] Offset perímetro {OFFSET_PERIM} mm...")
-        off_perim = offset_inward(perim_ent, OFFSET_PERIM)
-        if not off_perim:
-            alerta_stop("AGP Arte Maker — Error", "No se pudo crear offset del perímetro.")
-            return
-        off_perim.Layer = LAYER_PLANES
-
-        # ── 12. Hatch k2 (perímetro → offset 0.5) ────────────────────────────
-        log("[12] Hatch k2...")
-        hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
-        time.sleep(1.0)
-
-        # ── 13. Hatch k (BN → offset 0.5) ────────────────────────────────────
-        log("[13] Hatch k...")
-        if bn_ent:
-            hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
-            time.sleep(1.0)
-        else:
-            log("  WARN: no se encontró banda negra.")
-
-        # ── 14. Degradé ───────────────────────────────────────────────────────
-        if CON_DEGRADE and bn_ent:
-            log(f"[14] Degradé: offset BN {OFFSET_BN_DEG} mm...")
-            off_bn = offset_inward(bn_ent, OFFSET_BN_DEG)
-            if off_bn:
-                off_bn.Layer = LAYER_PLANES
-                longitud = float(off_bn.Length)
-                n_pepas  = int(round(longitud / DIVISOR_DEG))
-                log(f"  Longitud: {longitud:.2f} mm  pepas: {n_pepas}")
-
-                if n_pepas > 0:
-                    # Verificar que el bloque "25" esté definido
-                    bloque_existe = False
-                    try:
-                        doc.Blocks.Item(BLOQUE_25)
-                        bloque_existe = True
-                        log(f"  Bloque '{BLOQUE_25}' ya existe.")
-                    except Exception:
-                        pass
-
-                    if not bloque_existe:
-                        log(f"  Importando bloque '{BLOQUE_25}' desde cajetines...")
-                        doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-                        time.sleep(4)
-                        doc.SendCommand("ERASE\nL\n\n")
-                        time.sleep(1.5)
-                        log(f"  Bloque '{BLOQUE_25}' registrado.")
-
-                    def ejecutar_divide(handle_curva):
-                        doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
-                        time.sleep(0.3)
-                        doc.SendCommand(
-                            f'DIVIDE\n'
-                            f'(handent "{handle_curva}")\n'
-                            f'B\n'
-                            f'{BLOQUE_25}\n'
-                            f'Y\n'
-                            f'{n_pepas}\n'
-                        )
-                        espera = max(4.0, n_pepas * 0.02)
-                        log(f"  Esperando {espera:.1f}s (DIVIDE)...")
-                        time.sleep(espera)
-                        doc.SendCommand("CLAYER\n0\n")
-                        time.sleep(0.3)
-
-                    def borrar_k3():
-                        _msp = doc.ModelSpace
-                        for _e in _msp:
-                            try:
-                                if _e.Layer.upper() == LAYER_K3.upper():
-                                    _e.Delete()
-                            except Exception:
-                                pass
-                        time.sleep(0.3)
-
-                    # Primera pasada sin REVERSE
-                    ejecutar_divide(off_bn.Handle)
-                    log("  Degradé en layer k3 ✔")
-                    
-                    # Preguntar al usuario si el degradé quedó correcto
-                    respuesta = ctypes.windll.user32.MessageBoxW(
-                        0,
-                        "¿El degradé quedó correcto?\n"
-                        "(Las bolas GRANDES deben estar hacia el borde azul/BN)\n\n"
-                        "Sí = quedó bien\n"
-                        "No = invertir automáticamente",
-                        "AGP Arte Maker — Verificar degradé",
-                        0x24   # MB_YESNO | MB_ICONQUESTION
-                    )
-                    if respuesta == 7:   # IDNO → invertir
-                        log("  Invirtiendo degradé...")
-                        borrar_k3()
-                        h_rev = off_bn.Handle
-                        doc.SendCommand(f'REVERSE\n(handent "{h_rev}")\n\n')
-                        time.sleep(0.6)
-                        ejecutar_divide(off_bn.Handle)
-                        log("  Degradé invertido ✔")
-                    else:
-                        log("  Degradé confirmado por usuario ✔")
-            else:
-                log("  WARN: no se pudo crear offset interior de BN.")
-        else:
-            log("[14] Sin degradé — omitido.")
-
-        # ── 15. Mover PERIMETRO/BN a PLANES ──────────────────────────────────
-        log("[15] Moviendo geometría original a PLANES...")
-        time.sleep(1.5)           # dejar que AutoCAD termine hatches/regen
-        msp = doc.ModelSpace      # refrescar antes de iterar
-        for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
-            try: e.Layer = LAYER_PLANES
-            except Exception: pass
-
-        log("=== Arte base completado — revisa en AutoCAD antes de guardar ✔ ===")
-
-        # ── 17. Diálogo del cajetín ───────────────────────────────────────────
-        log("[17] Abriendo diálogo de cajetín...")
-        valores = dialogo_cajetin(nombre_plano)
-
-        if valores:
-            actualizar_texto_cajetin(doc.ModelSpace, valores)
-            log("  Cajetín aplicado ✔ — guarda manualmente cuando estés conforme.")
-        else:
-            log("  Cajetín: cancelado por el usuario.")
-
-        # ── 18. Consolidar sublayers CAJETIN 1$* → CAJETIN1 ─────────────────
-        log("[18] Consolidando layers CAJETIN 1$* → CAJETIN1...")
-        asegurar_layer(doc, "CAJETIN1")
-        consolidados = 0
-        for _e in doc.ModelSpace:
-            try:
-                if _e.Layer.upper().startswith("CAJETIN 1$") or _e.Layer.upper() == "CAJETIN 1":
-                    _e.Layer = "CAJETIN1"
-                    consolidados += 1
-            except Exception:
-                pass
-        log(f"  {consolidados} objeto(s) movidos a CAJETIN1 ✔")
-
-        # ── 19. Purge — elimina layers vacíos (AYUDAS, etc.) ─────────────────
-        log("[19] Purgando layers y bloques sin usar...")
-        doc.SendCommand("-PURGE\nAll\n*\nN\n")
-        time.sleep(2)
-
-        log("=== Arte completado ✔ ===")
+        pipeline(doc)
         ctypes.windll.user32.MessageBoxW(0,
             "Arte creado correctamente.\nRevisa el resultado en AutoCAD.",
             "AGP Arte Maker", 0x40)
-
     except Exception as e:
         log(f"ERROR FATAL: {e}")
         alerta_stop("AGP Arte Maker — Error fatal", str(e))

@@ -76,13 +76,15 @@ _RADIO_MIN      = 15.0
 import math as _math2
 import re   as _re
 
-# Importar diálogo y actualizador de cajetín desde crear_arte_acad.py (si existe)
+# Importar pipeline y diálogo desde crear_arte_acad.py
 try:
     from crear_arte_acad import dialogo_cajetin as _dialogo_cajetin
     from crear_arte_acad import actualizar_texto_cajetin as _actualizar_texto_cajetin
+    from crear_arte_acad import pipeline as _pipeline_acad
     _CAJETIN_DIALOG_OK = True
 except Exception:
     _CAJETIN_DIALOG_OK = False
+    _pipeline_acad = None
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -228,13 +230,13 @@ def _length_polyline(ent):
         return 0.0
 
 
-def _crear_arte_autocad(ruta_dwg: str, log_fn=None, ruta_salida: str = None):
-    """
-    Pipeline completo de creación de arte en AutoCAD.
-    ruta_dwg: ruta al _PLANO.dwg ya extraído.
-    """
+def _crear_arte_autocad(ruta_dwg: str, log_fn=None, valores_cajetin=None, ruta_salida: str = None):
+    """Abre el DWG y ejecuta el pipeline completo desde crear_arte_acad.pipeline()."""
     if log_fn is None:
         log_fn = print
+
+    if _pipeline_acad is None:
+        raise RuntimeError("No se pudo importar el pipeline desde crear_arte_acad.py")
 
     pythoncom.CoInitialize()
     try:
@@ -246,226 +248,15 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None, ruta_salida: str = None):
         log_fn(f"  Abriendo: {os.path.basename(ruta_dwg)}")
         doc = acad.Documents.Open(os.path.abspath(ruta_dwg), False, False)
         time.sleep(2)
-        msp = doc.ModelSpace
+        try:
+            doc.Activate()
+            time.sleep(0.5)
+        except Exception:
+            pass
 
-        # ── 1. Quitar GlobalWidth (ConstantWidth) en todas las polylines ─────
-        log_fn("  [1] Limpiando GlobalWidth a 0...")
-        for ent in msp:
-            try:
-                if "Polyline" in ent.ObjectName:
-                    ent.ConstantWidth = 0.0
-                    ent.Update()
-            except Exception:
-                pass
-
-        # ── 2. Verificar que todos los contornos PERIMETRO/BN estén cerrados ─
-        log_fn("  [2] Verificando contornos cerrados...")
-        _no_cerrados = []
-        for ent in _ents_por_patron(msp, _PAT_PERIM + _PAT_BN):
-            try:
-                if not ent.Closed:
-                    _no_cerrados.append(ent.Layer)
-            except Exception:
-                pass
-        if _no_cerrados:
-            msg = "ALERTA: Los siguientes layers tienen contornos NO cerrados:\n" + \
-                  "\n".join(set(_no_cerrados)) + \
-                  "\n\nCorrige y vuelve a ejecutar."
-            log_fn(f"  ERROR contornos abiertos: {_no_cerrados}")
-            raise RuntimeError(msg)
-        log_fn("  Todos los contornos están cerrados OK")
-
-        # ── 3. Verificar radios mínimos en PERIMETRO ──────────────────────────
-        log_fn("  [3] Verificando radios (mín 15 mm)...")
-        _radios_malos = []
-        for ent in _ents_por_patron(msp, _PAT_PERIM):
-            _radios_malos += _verificar_radios_acad(ent, _RADIO_MIN)
-        if _radios_malos:
-            _min_r = min(_radios_malos)
-            log_fn(f"  WARN radios < 15mm: {sorted(set(_radios_malos))[:8]} — continuando.")
-            # mostrar messagebox en hilo principal
-            import ctypes
-            ctypes.windll.user32.MessageBoxW(
-                0,
-                f"Radios menores a 15 mm detectados.\nMínimo: {_min_r:.3f} mm\n\nEl proceso continuará.",
-                "AGP Arte Maker — Advertencia radios",
-                0x30
-            )
-        else:
-            log_fn("  Radios OK")
-
-        # ── 4. Detectar modo degradé: contar polylines cerradas en BN/PHANTOM ─
-        _bn_ents = [e for e in _ents_por_patron(msp, _PAT_BN)
-                    if e.Closed and "Polyline" in e.ObjectName]
-        _bn_ents.sort(key=_area_bbox, reverse=True)   # mayor área = exterior
-        CON_DEGRADE = len(_bn_ents) >= 2
-        bn_ent = _bn_ents[0] if _bn_ents else None
-        log_fn(f"  [4] BN encontrados: {len(_bn_ents)}  → {'CON degradé' if CON_DEGRADE else 'SIN degradé'}")
-
-        # ── 5. Obtener perímetro ──────────────────────────────────────────────
-        _perim_ents = [e for e in _ents_por_patron(msp, _PAT_PERIM)
-                       if e.Closed and "Polyline" in e.ObjectName]
-        if not _perim_ents:
-            raise RuntimeError("No se encontró curva de PERÍMETRO cerrada.")
-        perim_ent = sorted(_perim_ents, key=_area_bbox, reverse=True)[0]
-        log_fn("  [5] Perímetro encontrado OK")
-
-        # Asegurar layers de arte
-        for lyr in [_LAYER_PLANES, _LAYER_K2, _LAYER_K]:
-            _asegurar_layer(doc, lyr)
-
-        # ── 6. Offset perímetro 0.5mm hacia adentro ───────────────────────────
-        log_fn(f"  [6] Offset perímetro {_OFFSET_PERIM} mm...")
-        off_perim = _offset_inward(doc, msp, perim_ent, _OFFSET_PERIM)
-        if not off_perim:
-            raise RuntimeError("No se pudo crear offset del perímetro.")
-        off_perim.Layer = _LAYER_PLANES
-
-        # ── 7. Hatch SOLID perímetro → offset 0.5 (layer k2) ─────────────────
-        log_fn("  [7] Hatch k2 (borde perímetro)...")
-        h_k2 = _hatch_solido(doc, msp, perim_ent, off_perim, _LAYER_K2)
-        if not h_k2:
-            log_fn("  WARN: hatch k2 no se pudo crear.")
-
-        # ── 8. Hatch SOLID BN → offset 0.5 (layer k) ─────────────────────────
-        log_fn("  [8] Hatch k (banda negra)...")
-        if bn_ent:
-            h_k = _hatch_solido(doc, msp, bn_ent, off_perim, _LAYER_K)
-            if not h_k:
-                log_fn("  WARN: hatch k no se pudo crear.")
-        else:
-            log_fn("  WARN: no se encontró banda negra.")
-
-        # ── 9. Degradé ────────────────────────────────────────────────────────
-        if CON_DEGRADE and bn_ent:
-            log_fn(f"  [9] Degradé: offset BN {_OFFSET_BN_DEG} mm...")
-            off_bn = _offset_inward(doc, msp, bn_ent, _OFFSET_BN_DEG)
-            if off_bn:
-                off_bn.Layer = _LAYER_PLANES
-                longitud = _length_polyline(off_bn)
-                n_pepas  = int(round(longitud / _DIVISOR_DEG)) if longitud > 0 else 0
-                log_fn(f"  Longitud offset BN: {longitud:.2f} mm  pepas: {n_pepas}")
-
-                if n_pepas > 0:
-                    # Insertar bloque 25 desde CAJETIN_DWG si no existe
-                    try:
-                        doc.Blocks.Item(_BLOQUE_25)
-                        log_fn(f"  Bloque '{_BLOQUE_25}' ya existe en el doc.")
-                    except Exception:
-                        log_fn(f"  Importando bloque '{_BLOQUE_25}' desde cajetines...")
-                        doc.SendCommand(
-                            f'-INSERT "{os.path.abspath(CAJETIN_DWG)}" \n'
-                            f'C \n0,0,0\n1\n1\n0\n'
-                        )
-                        time.sleep(1.5)
-                        doc.SendCommand("U \n")   # deshacer la inserción del bloque completo
-                        time.sleep(0.5)
-
-                    # Usar DIVIDE con bloque 25 sobre el offset BN
-                    log_fn(f"  Aplicando DIVIDE con bloque '{_BLOQUE_25}' x{n_pepas}...")
-                    handle = off_bn.Handle
-                    doc.SendCommand(
-                        f'(handent "{handle}") \n'
-                    )
-                    time.sleep(0.3)
-                    doc.SendCommand(
-                        f'DIVIDE \n'
-                        f'(handent "{handle}") \n'
-                        f'B \n'
-                        f'{_BLOQUE_25} \n'
-                        f'Y \n'
-                        f'{n_pepas} \n'
-                    )
-                    time.sleep(1.0)
-                    log_fn(f"  Degradé aplicado OK")
-            else:
-                log_fn("  WARN: no se pudo crear offset interior de BN.")
-        else:
-            log_fn("  [9] Sin degradé — omitido.")
-
-        # ── 10. Importar cajetines ────────────────────────────────────────────
-        log_fn("  [10] Importando cajetines...")
-        _ids_antes = set()
-        for e in msp:
-            try: _ids_antes.add(e.Handle)
-            except Exception: pass
-
-        abs_caj = os.path.abspath(CAJETIN_DWG)
-        doc.SendCommand(f'-INSERT "{abs_caj}" \n0,0,0\n1\n1\n0\n')
-        time.sleep(2)
-        doc.SendCommand("EXPLODE \nL \n \n")
-        time.sleep(1)
-
-        # ── 11. Reemplazar logo ───────────────────────────────────────────────
-        log_fn("  [11] Reemplazando logo...")
-        _logo_plano = [e for e in msp
-                       if any(p in e.Layer.upper() for p in _PAT_LOGO)]
-        _logo1 = []
-        for e in msp:
-            try:
-                if "LOGO1" in e.Layer.upper():
-                    _logo1.append(e)
-            except Exception:
-                pass
-
-        if _logo_plano and _logo1:
-            cx_pl, cy_pl = _centro_bbox(_logo_plano)
-            cx_l1, cy_l1 = _centro_bbox(_logo1)
-            if cx_pl and cx_l1:
-                dx, dy = cx_pl - cx_l1, cy_pl - cy_l1
-                for e in _logo1:
-                    try:
-                        e.Move(_pt(0,0), _pt(dx, dy))
-                    except Exception:
-                        pass
-                for e in _logo_plano:
-                    try: e.Delete()
-                    except Exception: pass
-                log_fn("  Logo reemplazado OK")
-
-        # ── 12. Centrar cajetín sobre la pieza ────────────────────────────────
-        log_fn("  [12] Centrando cajetín...")
-        _caj_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
-        if _caj_ents:
-            cx_p, cy_p = _centro_bbox([perim_ent])
-            cx_c, cy_c = _centro_bbox(_caj_ents)
-            if cx_p and cx_c:
-                dx, dy = cx_p - cx_c, cy_p - cy_c
-                for e in _caj_ents:
-                    try: e.Move(_pt(0,0), _pt(dx, dy))
-                    except Exception: pass
-                log_fn("  Cajetín centrado OK")
-
-        # ── 13. Mover PERIMETRO/BN al layer PLANES ────────────────────────────
-        log_fn("  [13] Moviendo geometría original a PLANES...")
-        for ent in _ents_por_patron(msp, _PAT_PERIM + _PAT_BN):
-            try: ent.Layer = _LAYER_PLANES
-            except Exception: pass
-
-        # ── 14. Guardar ───────────────────────────────────────────────────────
-        if ruta_salida:
-            os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
-            abs_salida = os.path.abspath(ruta_salida)
-            log_fn(f"  [14] Guardando como: {os.path.basename(abs_salida)}")
-            try:
-                doc.SaveAs(abs_salida)
-                time.sleep(1.5)
-            except Exception as e_save:
-                log_fn(f"  WARN SaveAs COM falló ({e_save}), usando SAVEAS command...")
-                doc.SendCommand(f'-SAVEAS DWG "{abs_salida}"\n')
-                time.sleep(2)
-        else:
-            log_fn("  [14] Guardando...")
-            doc.SendCommand("QSAVE \n")
-            time.sleep(1)
-
-        # ── 15. Purge ─────────────────────────────────────────────────────────
-        log_fn("  [15] Purgando capas vacías...")
-        doc.SendCommand("-PURGE \nA \n \nN \n")
-        time.sleep(1)
-
-        log_fn("  Arte creado correctamente.")
-
+        _pipeline_acad(doc, log_fn=log_fn,
+                       valores_cajetin=valores_cajetin,
+                       ruta_salida=ruta_salida)
     finally:
         pythoncom.CoUninitialize()
 
@@ -686,7 +477,6 @@ def _dims_ok(w1,h1,w2,h2):
     if pct(w1,h2)<_TOL and pct(h1,w2)<_TOL: return True
     return False
 
-
 def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
     if log_fn is None:
         log_fn = print
@@ -738,7 +528,7 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
         log_fn("  COMPARACIÓN DE CAPAS:")
         resumen = []
         dims_ok_perim = False
-
+        
         for nombre_capa, pat_arte, pat_plano in _CAPAS_COMP:
             ba = _bbox_entidades(msp,      pat_arte)
             bp = _bbox_entidades(xref_blk, pat_plano) if xref_blk else None
@@ -746,9 +536,9 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
             wp, hp = _dims(bp)
 
             if wa is None and wp is None:
-                log_fn(f"  [{nombre_capa}]  —  no encontrado en ninguno"); resumen.append((nombre_capa, None)); continue
+                log_fn(f"  [{nombre_capa}]  —  no encontrado en ninguno:0"); resumen.append((nombre_capa, None)); continue
             if wa is None:
-                log_fn(f"  [{nombre_capa}]  —  no encontrado en el ARTE"); resumen.append((nombre_capa, None)); continue
+                log_fn(f"  [{nombre_capa}]  —  no encontrado en el ARTE:)"); resumen.append((nombre_capa, None)); continue
             if wp is None:
                 log_fn(f"  [{nombre_capa}]  —  no encontrado en el PLANO"); resumen.append((nombre_capa, None)); continue
 
@@ -1458,28 +1248,14 @@ class ArteMakerApp(tk.Tk):
         try:
             _crear_arte_autocad(ruta_filtrada,
                                 log_fn=lambda m: self._log(m, "dim"),
+                                valores_cajetin=valores if valores else None,
                                 ruta_salida=ruta_arte)
-            # Rellenar texto del cajetín si tenemos los valores
-            if _CAJETIN_DIALOG_OK and valores:
-                try:
-                    import win32com.client as _wc
-                    import pythoncom as _pc
-                    _pc.CoInitialize()
-                    _acad = _wc.GetActiveObject("AutoCAD.Application")
-                    _doc  = _acad.ActiveDocument
-                    _actualizar_texto_cajetin(_doc.ModelSpace, valores)
-                    _doc.Save()
-                    _pc.CoUninitialize()
-                except Exception as e_caj:
-                    self._log(f"  WARN cajetin text: {e_caj}", "warn")
             self._log(f"Arte guardado ✔  {os.path.basename(ruta_arte)}", "ok")
-        except RuntimeError as e:
-            self._log(str(e), "err")
-            self.after(0, lambda: messagebox.showerror("Error", str(e)))
-            self._busy(False)
-            return
         except Exception as e:
-            self._log(f"ERROR inesperado: {e}", "err")
+            import traceback
+            self._log(f"ERROR en creacion de arte: {e}", "err")
+            self._log(traceback.format_exc(), "err")
+            self.after(0, lambda: messagebox.showerror("Error creando arte", str(e)))
             self._busy(False)
             return
 
