@@ -456,19 +456,18 @@ import re as _re
 
 def _extraer_codigos(ruta_archivo: str) -> list:
     """
-    Extrae los códigos numéricos del final del nombre del plano.
-    Lee dígitos de derecha a izquierda hasta acumular 6, ignorando letras.
-    Ej: '1576 00 001'     → ['001']
-        '1795 003 001-002' → ['001', '002']
-        '1576 00 00'       → ['00', '00']
+    Extrae el sufijo numérico exacto del plano (los últimos grupos, hasta 6 dígitos total).
+    Ej: '1795 003 001-002' → ['001', '002']
+        '1795 003 007'     → ['007']
+        '1576 00 001'      → ['001']
     """
     base = os.path.splitext(os.path.basename(ruta_archivo))[0]
-    grupos = _re.findall(r'\d+', base)   # todos los grupos numéricos
+    grupos = _re.findall(r'\d+', base)
     if not grupos:
         return []
     codigos = []
-    total   = 0
-    for g in reversed(grupos):           # de derecha a izquierda
+    total = 0
+    for g in reversed(grupos):
         if total + len(g) > 6:
             break
         codigos.insert(0, g)
@@ -478,24 +477,35 @@ def _extraer_codigos(ruta_archivo: str) -> list:
 
 def _buscar_artes(ruta: str, codigos: list) -> list:
     """
-    Busca recursivamente dentro de carpetas ARTES (y sus subcarpetas).
-    Solo retorna archivos que coincidan con alguno de los códigos.
-    Un archivo coincide si contiene el código exacto como grupo numérico.
+    Busca archivos de arte con matching estricto:
+    - Solo en carpetas cuyo path contenga 'ARTES' (cualquier subcarpeta dentro)
+    - Solo archivos que empiecen con 'P' (mayúscula o minúscula)
+    - El archivo debe terminar EXACTAMENTE con los mismos grupos numéricos que el plano
+      (en orden). Ej: códigos ['007','008'] → el archivo debe tener ...007-008 al final,
+      NOT solo 007 ni 007-009.
     """
     resultados = []
     for raiz, dirs, archivos in os.walk(ruta):
         dirs[:] = [d for d in dirs if not d.startswith(".")]
         partes = raiz.replace("\\", "/").upper().split("/")
-        if "ARTES" not in partes:
+        # Buscar dentro de cualquier carpeta ARTES y sus subcarpetas
+        if not any(p == "ARTES" or p.startswith("ARTES") for p in partes):
             continue
         for archivo in sorted(archivos):
-            if os.path.splitext(archivo)[1].lower() not in (".dwg", ".3dm"):
+            ext = os.path.splitext(archivo)[1].lower()
+            if ext not in (".dwg", ".3dm"):
+                continue
+            # Solo archivos que empiecen con P
+            if not archivo.upper().startswith("P"):
                 continue
             nombre_sin_ext = os.path.splitext(archivo)[0]
             nums_archivo   = _re.findall(r'\d+', nombre_sin_ext)
-            coincide = bool(codigos) and any(c in nums_archivo for c in codigos)
-            if not coincide:
-                continue                 # solo mostrar coincidencias
+            # Matching estricto: los últimos len(codigos) grupos numéricos
+            # deben ser EXACTAMENTE iguales a codigos, en ese orden
+            if not codigos or len(nums_archivo) < len(codigos):
+                continue
+            if nums_archivo[-len(codigos):] != codigos:
+                continue
             rel = os.path.relpath(raiz, ruta)
             resultados.append({
                 "version":       rel,
@@ -1025,7 +1035,7 @@ class ArteMakerApp(tk.Tk):
 
         btn_row = tk.Frame(card_wf, bg=C["panel"])
         btn_row.pack(fill="x", pady=6)
-
+        
         self._btn_extraer = NeonButton(
             btn_row,
             text="▶  EXTRAER PLANO",
