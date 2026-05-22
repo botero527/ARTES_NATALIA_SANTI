@@ -317,25 +317,50 @@ def dialogo_cajetin(nombre_plano=""):
 
     root = tk.Tk()
     root.title("AGP Arte Maker")
-    root.resizable(False, False)
+    root.resizable(True, True)
     root.attributes("-topmost", True)
     root.configure(bg=_C["bg"])
+    root.minsize(560, 400)
 
-    # ── Título / header ───────────────────────────────────────────────────────
+    # ── Título / header (fijo, fuera del scroll) ──────────────────────────────
     hdr = tk.Frame(root, bg=_C["accent"], height=4)
     hdr.pack(fill="x")
 
-    title_frame = tk.Frame(root, bg=_C["bg"], pady=18)
+    title_frame = tk.Frame(root, bg=_C["bg"], pady=14)
     title_frame.pack(fill="x", padx=28)
 
     tk.Label(title_frame, text="AGP  Arte Maker",
              font=("Segoe UI", 18, "bold"), fg=_C["text"], bg=_C["bg"]).pack(anchor="w")
     tk.Label(title_frame, text=f"Cajetín  ·  {nombre_plano or 'nuevo plano'}",
-             font=("Segoe UI", 9), fg=_C["muted"], bg=_C["bg"]).pack(anchor="w", pady=(2, 0))
+             font=("Segoe UI", 9), fg=_C["muted"], bg=_C["bg"]).pack(anchor="w")
 
-    # ── Cuerpo ────────────────────────────────────────────────────────────────
-    body = tk.Frame(root, bg=_C["bg"], padx=28)
-    body.pack(fill="both", expand=True)
+    # ── Zona scrollable ───────────────────────────────────────────────────────
+    from tkinter import ttk as _ttk
+    scroll_outer = tk.Frame(root, bg=_C["bg"])
+    scroll_outer.pack(fill="both", expand=True, padx=0, pady=0)
+
+    canvas_scroll = tk.Canvas(scroll_outer, bg=_C["bg"],
+                              highlightthickness=0, bd=0)
+    vsb = _ttk.Scrollbar(scroll_outer, orient="vertical",
+                         command=canvas_scroll.yview)
+    canvas_scroll.configure(yscrollcommand=vsb.set)
+    vsb.pack(side="right", fill="y")
+    canvas_scroll.pack(side="left", fill="both", expand=True)
+
+    body = tk.Frame(canvas_scroll, bg=_C["bg"], padx=28)
+    _body_win = canvas_scroll.create_window((0, 0), window=body, anchor="nw")
+
+    def _on_body_configure(_e):
+        canvas_scroll.configure(scrollregion=canvas_scroll.bbox("all"))
+    def _on_canvas_configure(e):
+        canvas_scroll.itemconfig(_body_win, width=e.width)
+    body.bind("<Configure>", _on_body_configure)
+    canvas_scroll.bind("<Configure>", _on_canvas_configure)
+
+    # Scroll con rueda del ratón
+    def _on_mousewheel(e):
+        canvas_scroll.yview_scroll(int(-1*(e.delta/120)), "units")
+    root.bind_all("<MouseWheel>", _on_mousewheel)
 
     entries = {}
 
@@ -435,11 +460,13 @@ def dialogo_cajetin(nombre_plano=""):
 
     root.bind("<Escape>", cancelar)
 
-    # ── Centrar ventana en pantalla ───────────────────────────────────────────
+    # ── Centrar ventana en pantalla (limitar al 90% de altura) ───────────────
     root.update_idletasks()
-    w, h = root.winfo_width(), root.winfo_height()
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
+    sw, sh  = root.winfo_screenwidth(), root.winfo_screenheight()
+    w       = root.winfo_reqwidth()
+    h       = min(root.winfo_reqheight(), int(sh * 0.90))
+    w       = max(w, 560)
+    root.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
     root.mainloop()
     return resultado[0]

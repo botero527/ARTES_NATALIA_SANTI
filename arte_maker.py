@@ -76,6 +76,14 @@ _RADIO_MIN      = 15.0
 import math as _math2
 import re   as _re
 
+# Importar diálogo y actualizador de cajetín desde crear_arte_acad.py (si existe)
+try:
+    from crear_arte_acad import dialogo_cajetin as _dialogo_cajetin
+    from crear_arte_acad import actualizar_texto_cajetin as _actualizar_texto_cajetin
+    _CAJETIN_DIALOG_OK = True
+except Exception:
+    _CAJETIN_DIALOG_OK = False
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 #  CREAR ARTE EN AUTOCAD
@@ -220,7 +228,7 @@ def _length_polyline(ent):
         return 0.0
 
 
-def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
+def _crear_arte_autocad(ruta_dwg: str, log_fn=None, ruta_salida: str = None):
     """
     Pipeline completo de creación de arte en AutoCAD.
     ruta_dwg: ruta al _PLANO.dwg ya extraído.
@@ -435,9 +443,21 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
             except Exception: pass
 
         # ── 14. Guardar ───────────────────────────────────────────────────────
-        log_fn("  [14] Guardando...")
-        doc.SendCommand("QSAVE \n")
-        time.sleep(1)
+        if ruta_salida:
+            os.makedirs(os.path.dirname(os.path.abspath(ruta_salida)), exist_ok=True)
+            abs_salida = os.path.abspath(ruta_salida)
+            log_fn(f"  [14] Guardando como: {os.path.basename(abs_salida)}")
+            try:
+                doc.SaveAs(abs_salida)
+                time.sleep(1.5)
+            except Exception as e_save:
+                log_fn(f"  WARN SaveAs COM falló ({e_save}), usando SAVEAS command...")
+                doc.SendCommand(f'-SAVEAS DWG "{abs_salida}"\n')
+                time.sleep(2)
+        else:
+            log_fn("  [14] Guardando...")
+            doc.SendCommand("QSAVE \n")
+            time.sleep(1)
 
         # ── 15. Purge ─────────────────────────────────────────────────────────
         log_fn("  [15] Purgando capas vacías...")
@@ -518,14 +538,45 @@ def _buscar_artes(ruta: str, codigos: list) -> list:
 
 
 def _ruta_planos(ruta_dwg: str) -> str:
-    """
-    Crea y devuelve la carpeta PLANOS junto al DWG del plano.
-    Ej: ...\\V-00 EPEL\\1774 001.dwg  →  ...\\V-00 EPEL\\PLANOS\\
-    """
+    """Devuelve (y crea) la carpeta PLANOS junto al DWG original."""
     carpeta_version = os.path.dirname(os.path.abspath(ruta_dwg))
     destino = os.path.join(carpeta_version, "PLANOS")
     os.makedirs(destino, exist_ok=True)
     return destino
+
+
+def _ruta_arte_salida(ruta_dwg_original: str, malla: str = "", pieza: str = "") -> str:
+    """
+    Devuelve la ruta de salida del arte:
+      - Nombre: P {malla} {pieza}.dwg   (o P {nombre_original}.dwg si no hay malla/pieza)
+      - Carpeta: ARTES/BN/ si existe subcarpeta llamada exactamente 'BN' (sin más),
+                 ARTES/    en caso contrario.
+    Crea las carpetas necesarias.
+    """
+    carpeta      = os.path.dirname(os.path.abspath(ruta_dwg_original))
+    artes_dir    = os.path.join(carpeta, "ARTES")
+    os.makedirs(artes_dir, exist_ok=True)
+
+    # Buscar subcarpeta exactamente "BN" (case-insensitive, solo si es exactamente eso)
+    destino = artes_dir
+    try:
+        for entry in os.listdir(artes_dir):
+            full = os.path.join(artes_dir, entry)
+            if os.path.isdir(full) and entry.upper() == "BN":
+                destino = full
+                break
+    except Exception:
+        pass
+
+    # Construir nombre del archivo
+    partes_nombre = [p.strip() for p in [malla, pieza] if p.strip()]
+    if partes_nombre:
+        nombre_archivo = "P " + " ".join(partes_nombre) + ".dwg"
+    else:
+        nombre_base    = os.path.splitext(os.path.basename(ruta_dwg_original))[0]
+        nombre_archivo = f"P {nombre_base}.dwg"
+
+    return os.path.join(destino, nombre_archivo)
 
 
 import math as _math
@@ -1035,7 +1086,7 @@ class ArteMakerApp(tk.Tk):
 
         btn_row = tk.Frame(card_wf, bg=C["panel"])
         btn_row.pack(fill="x", pady=6)
-        
+
         self._btn_extraer = NeonButton(
             btn_row,
             text="▶  EXTRAER PLANO",
@@ -1064,7 +1115,21 @@ class ArteMakerApp(tk.Tk):
             hover_color=C["btn_warn2"],
             width=200, height=48,
             subtitle="Encuentra artes existentes")
-        self._btn_comprobar.pack(side="left")
+        self._btn_comprobar.pack(side="left", padx=10)
+
+        # Separador vertical
+        tk.Frame(btn_row, bg=C["border"], width=2).pack(side="left", fill="y", padx=10)
+
+        # Botón TODO EN UNO
+        self._btn_todo = NeonButton(
+            btn_row,
+            text="⚡  TODO EN UNO",
+            command=self._todo_en_uno,
+            color="#E63946",
+            hover_color="#B71C2E",
+            width=200, height=48,
+            subtitle="Extrae plano + crea arte de un click")
+        self._btn_todo.pack(side="left")
 
         # PulseBar — debajo de los botones, oculta hasta que haya actividad
         self._pulse = PulseBar(card_wf)
@@ -1210,7 +1275,7 @@ class ArteMakerApp(tk.Tk):
                          font=FONT_SMALL, cursor="hand2",
                          activebackground=C["accent"], activeforeground=C["bg"],
                          command=cmd)
-
+    
     # ── Helpers ───────────────────────────────────────────────────────────────
 
     def _centrar(self, w, h):
@@ -1235,6 +1300,7 @@ class ArteMakerApp(tk.Tk):
         self._btn_extraer.configure_state(not activo)
         self._btn_crear.configure_state(not activo)
         self._btn_comprobar.configure_state(not activo)
+        self._btn_todo.configure_state(not activo)
         if activo:
             self._dot_count = 0
             self.configure(cursor="watch")
@@ -1326,6 +1392,105 @@ class ArteMakerApp(tk.Tk):
             self._log(f"ERROR inesperado: {e}", "err")
         finally:
             self._busy(False)
+
+    # ── TODO EN UNO ───────────────────────────────────────────────────────────
+
+    def _todo_en_uno(self):
+        if not self._validar(necesita_dwg=True):
+            return
+
+        # Mostrar diálogo del cajetín PRIMERO en el hilo principal
+        ruta_plano   = self._dwg_plano.get().strip().strip('"')
+        nombre_plano = os.path.splitext(os.path.basename(ruta_plano))[0]
+
+        if _CAJETIN_DIALOG_OK:
+            valores = _dialogo_cajetin(nombre_plano)
+        else:
+            valores = {}
+
+        if valores is None:
+            return  # usuario canceló
+
+        self._busy(True)
+        threading.Thread(target=self._t_todo_en_uno,
+                         args=(ruta_plano, valores), daemon=True).start()
+
+    def _t_todo_en_uno(self, ruta_plano: str, valores: dict):
+        malla = valores.get("MALLA", "").strip()
+        pieza = valores.get("PIEZA", "").strip()
+
+        self._log("=" * 56)
+        self._log("TODO EN UNO — Extrayendo plano + Creando arte...", "ok")
+        self._log(f"Plano: {os.path.basename(ruta_plano)}", "dim")
+        if malla or pieza:
+            self._log(f"Malla: {malla}   Pieza: {pieza}", "dim")
+
+        # ─ Paso 1: Extraer plano ─────────────────────────────────────────────
+        self._log("─" * 40)
+        self._log("PASO 1/2 — Extrayendo layers...", "warn")
+        nombre_base   = os.path.splitext(os.path.basename(ruta_plano))[0]
+        ruta_filtrada = os.path.join(_ruta_planos(ruta_plano), f"{nombre_base}_PLANO.dwg")
+        self._log(f"  → {ruta_filtrada}", "dim")
+
+        try:
+            motor = AutoCADMotor()
+        except RuntimeError as e:
+            self._log(f"ERROR AutoCAD: {e}", "err")
+            self._busy(False)
+            return
+        try:
+            motor.extraer_layers(ruta_plano, ruta_filtrada,
+                                 log_fn=lambda m: self._log(m, "dim"))
+        except Exception as e:
+            self._log(f"ERROR extraccion: {e}", "err")
+            motor.quit()
+            self._busy(False)
+            return
+        motor.quit()
+        self._log(f"  Plano extraido ✔  {os.path.basename(ruta_filtrada)}", "ok")
+
+        # ─ Paso 2: Crear arte + guardar ──────────────────────────────────────
+        self._log("─" * 40)
+        self._log("PASO 2/2 — Creando arte en AutoCAD...", "warn")
+        ruta_arte = _ruta_arte_salida(ruta_plano, malla, pieza)
+        self._log(f"  → {ruta_arte}", "dim")
+
+        try:
+            _crear_arte_autocad(ruta_filtrada,
+                                log_fn=lambda m: self._log(m, "dim"),
+                                ruta_salida=ruta_arte)
+            # Rellenar texto del cajetín si tenemos los valores
+            if _CAJETIN_DIALOG_OK and valores:
+                try:
+                    import win32com.client as _wc
+                    import pythoncom as _pc
+                    _pc.CoInitialize()
+                    _acad = _wc.GetActiveObject("AutoCAD.Application")
+                    _doc  = _acad.ActiveDocument
+                    _actualizar_texto_cajetin(_doc.ModelSpace, valores)
+                    _doc.Save()
+                    _pc.CoUninitialize()
+                except Exception as e_caj:
+                    self._log(f"  WARN cajetin text: {e_caj}", "warn")
+            self._log(f"Arte guardado ✔  {os.path.basename(ruta_arte)}", "ok")
+        except RuntimeError as e:
+            self._log(str(e), "err")
+            self.after(0, lambda: messagebox.showerror("Error", str(e)))
+            self._busy(False)
+            return
+        except Exception as e:
+            self._log(f"ERROR inesperado: {e}", "err")
+            self._busy(False)
+            return
+
+        self._log("=" * 56)
+        self._log("TODO EN UNO completado.", "ok")
+        self._log(f"  Plano  → {ruta_filtrada}", "ok")
+        self._log(f"  Arte   → {ruta_arte}", "ok")
+
+        import subprocess
+        self.after(0, lambda: subprocess.Popen(["explorer", os.path.dirname(ruta_arte)]))
+        self._busy(False)
 
     # ── EXTRAER PLANO ─────────────────────────────────────────────────────────
 
