@@ -24,28 +24,30 @@ except ImportError as e:
 
 # ─── PALETA ──────────────────────────────────────────────────────────────────
 C = {
-    "bg":        "#0A0F1E",
-    "bg2":       "#0D1426",
-    "panel":     "#111827",
-    "panel2":    "#162033",
-    "border":    "#1E3A5F",
-    "accent":    "#00D4FF",
-    "accent2":   "#0099CC",
-    "accent3":   "#00FF88",
-    "btn_ok":    "#00C876",
-    "btn_ok2":   "#009955",
-    "btn_warn":  "#FF8C00",
-    "btn_warn2": "#CC6600",
-    "txt":       "#E8F4FD",
-    "txt_dim":   "#5A7A9A",
-    "txt_mid":   "#8AADCC",
-    "entry_bg":  "#0D1A2E",
-    "entry_fg":  "#00D4FF",
-    "log_bg":    "#060C18",
-    "log_ok":    "#00FF88",
-    "log_warn":  "#FFB800",
-    "log_err":   "#FF4466",
-    "log_dim":   "#4A6A8A",
+    "bg":        "#0B0D17",
+    "bg2":       "#0F1220",
+    "panel":     "#131626",
+    "panel2":    "#171B2E",
+    "border":    "#1E2540",
+    "accent":    "#4FACFF",
+    "accent2":   "#2980CC",
+    "accent3":   "#50FA7B",
+    "btn_ok":    "#27AE60",
+    "btn_ok2":   "#1E8449",
+    "btn_warn":  "#E67E22",
+    "btn_warn2": "#CA6F1E",
+    "txt":       "#ECF0FF",
+    "txt_dim":   "#4A5A7A",
+    "txt_mid":   "#7A90B0",
+    "entry_bg":  "#0D1020",
+    "entry_fg":  "#4FACFF",
+    "log_bg":    "#080A14",
+    "log_ok":    "#50FA7B",
+    "log_warn":  "#FFB86C",
+    "log_err":   "#FF5555",
+    "log_dim":   "#44557A",
+    "purple":    "#8B5CF6",
+    "purple2":   "#6D28D9",
 }
 
 FONT_TITLE  = ("Segoe UI", 15, "bold")
@@ -263,7 +265,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
                   "\n\nCorrige y vuelve a ejecutar."
             log_fn(f"  ERROR contornos abiertos: {_no_cerrados}")
             raise RuntimeError(msg)
-        log_fn("  Todos los contornos están cerrados ✔")
+        log_fn("  Todos los contornos están cerrados OK")
 
         # ── 3. Verificar radios mínimos en PERIMETRO ──────────────────────────
         log_fn("  [3] Verificando radios (mín 15 mm)...")
@@ -282,7 +284,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
                 0x30
             )
         else:
-            log_fn("  Radios OK ✔")
+            log_fn("  Radios OK")
 
         # ── 4. Detectar modo degradé: contar polylines cerradas en BN/PHANTOM ─
         _bn_ents = [e for e in _ents_por_patron(msp, _PAT_BN)
@@ -298,7 +300,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
         if not _perim_ents:
             raise RuntimeError("No se encontró curva de PERÍMETRO cerrada.")
         perim_ent = sorted(_perim_ents, key=_area_bbox, reverse=True)[0]
-        log_fn("  [5] Perímetro encontrado ✔")
+        log_fn("  [5] Perímetro encontrado OK")
 
         # Asegurar layers de arte
         for lyr in [_LAYER_PLANES, _LAYER_K2, _LAYER_K]:
@@ -367,7 +369,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
                         f'{n_pepas} \n'
                     )
                     time.sleep(1.0)
-                    log_fn(f"  Degradé aplicado ✔")
+                    log_fn(f"  Degradé aplicado OK")
             else:
                 log_fn("  WARN: no se pudo crear offset interior de BN.")
         else:
@@ -411,7 +413,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
                 for e in _logo_plano:
                     try: e.Delete()
                     except Exception: pass
-                log_fn("  Logo reemplazado ✔")
+                log_fn("  Logo reemplazado OK")
 
         # ── 12. Centrar cajetín sobre la pieza ────────────────────────────────
         log_fn("  [12] Centrando cajetín...")
@@ -424,7 +426,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
                 for e in _caj_ents:
                     try: e.Move(_pt(0,0), _pt(dx, dy))
                     except Exception: pass
-                log_fn("  Cajetín centrado ✔")
+                log_fn("  Cajetín centrado OK")
 
         # ── 13. Mover PERIMETRO/BN al layer PLANES ────────────────────────────
         log_fn("  [13] Moviendo geometría original a PLANES...")
@@ -442,7 +444,7 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None):
         doc.SendCommand("-PURGE \nA \n \nN \n")
         time.sleep(1)
 
-        log_fn("  ✔ Arte creado correctamente.")
+        log_fn("  Arte creado correctamente.")
 
     finally:
         pythoncom.CoUninitialize()
@@ -692,13 +694,13 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
             ok = _dims_ok(wa, ha, wp, hp)
             if nombre_capa == "PERIMETRO":
                 dims_ok_perim = ok
-            estado = "✔  COINCIDE" if ok else "✘  NO COINCIDE"
-            log_fn(f"  [{nombre_capa}]  {estado}  arte {wa:.1f}×{ha:.1f}  plano {wp:.1f}×{hp:.1f} mm")
+            estado = "OK  COINCIDE" if ok else "X  NO COINCIDE"
+            log_fn(f"  [{nombre_capa}]  {estado}  arte {wa:.1f}x{ha:.1f}  plano {wp:.1f}x{hp:.1f} mm")
             resumen.append((nombre_capa, ok))
 
         # ── Buscar mejor transformación (rot + espejo) con puntos ─────────────
         mejor_rot, mejor_mirror, mejor_score = 0, False, 1e9
-        desc_transform = "0° sin espejo"
+        desc_transform = "0 sin espejo"
 
         bbox_arte_p  = _bbox_entidades(msp,      ["PERIMETRO"])
         bbox_plano_p = _bbox_entidades(xref_blk, ["PERIMETRO"]) if xref_blk else None
@@ -710,14 +712,14 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
             cx_p, cy_p = _centro(bbox_plano_p)
 
             if pts_arte and pts_plano:
-                log_fn("  Probando 8 transformaciones (4 rotaciones × espejo)...")
+                log_fn("  Probando 8 transformaciones (4 rotaciones x espejo)...")
                 for rot in [0, 90, 180, 270]:
                     for mirror in [False, True]:
                         sc = _score_transform(pts_arte, pts_plano, rot, mirror, cx_p, cy_p, cx_a, cy_a)
                         if sc < mejor_score:
                             mejor_score = sc; mejor_rot = rot; mejor_mirror = mirror
-                desc_transform = f"{mejor_rot}°{'  + espejo' if mejor_mirror else ''}"
-                log_fn(f"  Mejor transformación: {desc_transform}  (error promedio {mejor_score:.2f} mm)")
+                desc_transform = f"{mejor_rot}{'  + espejo' if mejor_mirror else ''}"
+                log_fn(f"  Mejor transformacion: {desc_transform}  (error promedio {mejor_score:.2f} mm)")
 
         # ── Aplicar transformación al XREF ────────────────────────────────────
         if xref_ref and bbox_arte_p:
@@ -739,16 +741,16 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
                 xref_ref.InsertionPoint = nuevo_ins
                 log_fn(f"  XREF posicionado: {desc_transform}")
             except Exception as e_pos:
-                log_fn(f"  Posicionamiento automático falló: {e_pos}")
+                log_fn(f"  Posicionamiento automatico fallo: {e_pos}")
 
         # ── Resultado final ───────────────────────────────────────────────────
         capas_ok = [r for r in resumen if r[1] is True]
         capas_no = [r for r in resumen if r[1] is False]
         log_fn("─" * 48)
         if capas_no:
-            log_fn(f"  RESULTADO: ✘ NO COINCIDE en: {', '.join(c[0] for c in capas_no)}")
+            log_fn(f"  RESULTADO: X NO COINCIDE en: {', '.join(c[0] for c in capas_no)}")
         elif capas_ok:
-            log_fn(f"  RESULTADO: ✔ ARTE CORRECTO  ({desc_transform})")
+            log_fn(f"  RESULTADO: OK ARTE CORRECTO  ({desc_transform})")
         else:
             log_fn("  RESULTADO: no se pudo comparar (capas no encontradas)")
 
@@ -756,55 +758,86 @@ def _overlay_autocad(ruta_arte: str, ruta_plano: str, log_fn=None):
         time.sleep(0.5)
     finally:
         pythoncom.CoUninitialize()
+
+
 # ─── WIDGET HELPERS ──────────────────────────────────────────────────────────
 
 class NeonButton(tk.Frame):
-    """Botón con borde de color y efecto hover — compatible Python 3.14."""
+    """Botón premium con borde colored, subtítulo opcional y efecto hover."""
     def __init__(self, parent, text, command, color, hover_color,
-                 width=180, height=40):
-        super().__init__(parent, bg=color, padx=2, pady=2, cursor="hand2")
+                 width=180, height=48, subtitle=""):
+        super().__init__(parent, bg=C["bg"], cursor="hand2")
         self._cmd        = command
         self._color      = color
         self._hover      = hover_color
         self._enabled    = True
 
-        self._lbl = tk.Label(self, text=text, font=FONT_HDR,
-                             bg=color, fg="white",
-                             padx=14, pady=8, cursor="hand2")
-        self._lbl.pack(fill="both", expand=True)
+        # Contenedor interior con el color del botón
+        self._inner = tk.Frame(self, bg=color, padx=2, pady=2)
+        self._inner.pack(fill="both", expand=True)
 
-        for w in (self, self._lbl):
+        # Texto principal
+        self._lbl = tk.Label(self._inner, text=text, font=FONT_HDR,
+                             bg=color, fg="white",
+                             padx=18, pady=6, cursor="hand2")
+        self._lbl.pack(fill="x")
+
+        # Subtítulo opcional
+        self._sub = None
+        if subtitle:
+            self._sub = tk.Label(self._inner, text=subtitle,
+                                 font=("Segoe UI", 7),
+                                 bg=color, fg="white",
+                                 padx=18, pady=0, cursor="hand2")
+            self._sub.pack(fill="x")
+
+        # Barra inferior de 3px (accent bar)
+        self._bar = tk.Frame(self, bg=hover_color, height=3)
+        self._bar.pack(fill="x", side="bottom")
+
+        for w in (self, self._inner, self._lbl) + ((self._sub,) if self._sub else ()):
             w.bind("<Enter>",    lambda e: self._on_enter())
             w.bind("<Leave>",    lambda e: self._on_leave())
             w.bind("<Button-1>", lambda e: self._click())
 
     def _on_enter(self):
         if self._enabled:
-            self.configure(bg=self._hover)
+            self._inner.configure(bg=self._hover)
             self._lbl.configure(bg=self._hover)
+            if self._sub:
+                self._sub.configure(bg=self._hover)
 
     def _on_leave(self):
         col = self._color if self._enabled else C["txt_dim"]
-        self.configure(bg=col)
+        self._inner.configure(bg=col)
         self._lbl.configure(bg=col)
+        if self._sub:
+            self._sub.configure(bg=col)
 
     def _click(self):
         if not self._enabled:
             return
-        self.configure(bg="white")
+        self._inner.configure(bg="white")
         self._lbl.configure(bg="white", fg=self._color)
+        if self._sub:
+            self._sub.configure(bg="white", fg=self._color)
         self.after(130, self._restore)
         self._cmd()
 
     def _restore(self):
-        self.configure(bg=self._color)
+        self._inner.configure(bg=self._color)
         self._lbl.configure(bg=self._color, fg="white")
+        if self._sub:
+            self._sub.configure(bg=self._color, fg="white")
 
     def configure_state(self, enabled: bool):
         self._enabled = enabled
         col = self._color if enabled else C["txt_dim"]
-        self.configure(bg=col)
+        self._inner.configure(bg=col)
         self._lbl.configure(bg=col)
+        if self._sub:
+            self._sub.configure(bg=col)
+        self._bar.configure(bg=self._hover if enabled else C["border"])
 
 
 class GlowEntry(tk.Frame):
@@ -825,30 +858,24 @@ class GlowEntry(tk.Frame):
         return self._var.get()
 
 
-class ScanLine(tk.Canvas):
-    """Línea animada tipo 'escaneo' en el header."""
+class ScanLine(tk.Frame):
+    """Barra decorativa en el header — compatible Python 3.14 / Tk 9."""
     def __init__(self, parent, **kw):
-        super().__init__(parent, height=3,
-                         bg=C["bg"], highlightthickness=0, **kw)
-        self._x = 0
-        self.bind("<Map>", self._on_map)
+        super().__init__(parent, bg=C["accent"], height=2, **kw)
 
-    def _on_map(self, _event=None):
-        self.unbind("<Map>")
-        self._w = self.winfo_width() or 960
-        self._animate()
 
-    def _animate(self):
-        if not self.winfo_exists():
-            return
-        self.delete("all")
-        for i in range(60):
-            x0 = self._x + (i - 30) * 4
-            x1 = x0 + 4
-            if 0 <= x0 <= self._w:
-                self.create_line(x0, 1, x1, 1, fill=C["accent"], width=2)
-        self._x = (self._x + 6) % (self._w + 120)
-        self.after(20, self._animate)
+class PulseBar(ttk.Progressbar):
+    """Barra de progreso indeterminada — compatible Python 3.14 / Tk 9."""
+    def __init__(self, parent, **kw):
+        super().__init__(parent, mode="indeterminate", length=0,
+                         style="Pulse.Horizontal.TProgressbar", **kw)
+
+    def start(self):
+        super().start(12)
+
+    def stop(self):
+        super().stop()
+        self["value"] = 0
 
 
 # ─── APP PRINCIPAL ────────────────────────────────────────────────────────────
@@ -859,16 +886,19 @@ class ArteMakerApp(tk.Tk):
         self.title("AGP GROUP — Arte Maker")
         self.configure(bg=C["bg"])
         self.resizable(True, True)
-        self.minsize(860, 680)
+        self.minsize(860, 700)
 
         self._ruta_base    = tk.StringVar()
         self._dwg_plano    = tk.StringVar()
         self._resultados: list = []
         self._dot_count    = 0
 
+        # Escuchar cambios en el campo DWG para actualizar el badge
+        self._dwg_plano.trace_add("write", self._on_dwg_changed)
+
         self._apply_ttk_style()
         self._build_ui()
-        self._centrar(960, 760)
+        self._centrar(980, 800)
 
     # ── TTK style ─────────────────────────────────────────────────────────────
 
@@ -882,15 +912,22 @@ class ArteMakerApp(tk.Tk):
                          fieldbackground=C["panel"],
                          borderwidth=0,
                          font=FONT_BODY,
-                         rowheight=26)
+                         rowheight=28)
         style.configure("Treeview.Heading",
-                         background=C["border"],
+                         background=C["panel2"],
                          foreground=C["accent"],
                          font=("Segoe UI", 9, "bold"),
-                         relief="flat")
+                         relief="flat",
+                         padding=(6, 4))
         style.map("Treeview",
-                  background=[("selected", C["border"])],
-                  foreground=[("selected", C["accent"])])
+                  background=[("selected", C["accent2"])],
+                  foreground=[("selected", "#FFFFFF")])
+
+        style.configure("Pulse.Horizontal.TProgressbar",
+                         troughcolor=C["bg"],
+                         background=C["accent"],
+                         borderwidth=0,
+                         thickness=4)
 
         style.configure("Vertical.TScrollbar",
                          background=C["panel2"],
@@ -901,33 +938,62 @@ class ArteMakerApp(tk.Tk):
     # ── Build UI ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
-        # ── HEADER ──
+        # ═══════════════════════════════
+        # HEADER
+        # ═══════════════════════════════
         hdr = tk.Frame(self, bg=C["bg2"])
         hdr.pack(fill="x")
 
-        tk.Frame(hdr, bg=C["accent"], height=2).pack(fill="x")
+        # Barra top 3px accent
+        tk.Frame(hdr, bg=C["accent"], height=3).pack(fill="x")
 
-        inner_hdr = tk.Frame(hdr, bg=C["bg2"], pady=14, padx=24)
+        inner_hdr = tk.Frame(hdr, bg=C["bg2"], pady=12, padx=24)
         inner_hdr.pack(fill="x")
-        tk.Label(inner_hdr, text="AGP GROUP", font=("Segoe UI", 9, "bold"),
-                 bg=C["bg2"], fg=C["txt_dim"]).pack(anchor="w")
-        tk.Label(inner_hdr, text="ARTE  MAKER",
-                 font=("Segoe UI", 20, "bold"),
-                 bg=C["bg2"], fg=C["accent"]).pack(anchor="w")
+        inner_hdr.columnconfigure(1, weight=1)
 
+        # Columna izquierda: logo + título
+        left_hdr = tk.Frame(inner_hdr, bg=C["bg2"])
+        left_hdr.grid(row=0, column=0, sticky="w")
+
+        tk.Label(left_hdr, text="AGP", font=("Segoe UI", 9, "bold"),
+                 bg=C["bg2"], fg=C["txt_mid"]).pack(side="left", padx=8)
+        tk.Label(left_hdr, text="ARTE MAKER",
+                 font=("Segoe UI", 22, "bold"),
+                 bg=C["bg2"], fg=C["accent"]).pack(side="left")
+
+        # Columna derecha: badge plano activo
+        right_hdr = tk.Frame(inner_hdr, bg=C["bg2"])
+        right_hdr.grid(row=0, column=2, sticky="e", padx=(0, 4))
+
+        tk.Label(right_hdr, text="PLANO ACTIVO",
+                 font=("Segoe UI", 7, "bold"),
+                 bg=C["bg2"], fg=C["txt_dim"]).pack(anchor="e")
+
+        self._badge_frame = tk.Frame(right_hdr, bg=C["panel2"],
+                                     padx=10, pady=3)
+        self._badge_frame.pack(anchor="e")
+        self._badge_lbl = tk.Label(self._badge_frame,
+                                   text="— sin seleccionar —",
+                                   font=("Segoe UI", 9, "bold"),
+                                   bg=C["panel2"], fg=C["txt_dim"])
+        self._badge_lbl.pack()
+
+        # ScanLine animada
         ScanLine(hdr).pack(fill="x")
         tk.Frame(hdr, bg=C["border"], height=1).pack(fill="x")
 
-        # línea inferior decorativa (se empaca primero para quedar al fondo)
-        tk.Frame(self, bg=C["accent"], height=2).pack(fill="x", side="bottom")
+        # Franja bottom decorativa
+        tk.Frame(self, bg=C["accent2"], height=2).pack(fill="x", side="bottom")
 
-        # ── BODY ──
-        body = tk.Frame(self, bg=C["bg"], padx=24, pady=16)
+        # ═══════════════════════════════
+        # BODY
+        # ═══════════════════════════════
+        body = tk.Frame(self, bg=C["bg"], padx=24, pady=14)
         body.pack(fill="both", expand=True)
 
-        # ── TARJETA: inputs ──
-        outer_in, card_in = self._card(body, "  CONFIGURACIÓN")
-        outer_in.pack(fill="x", pady=(0, 10))
+        # ─── TARJETA: inputs ────────────────────────────────────────────────
+        outer_in, card_in = self._card(body, "CONFIGURACION")
+        outer_in.pack(fill="x", pady=10)
         card_in.columnconfigure(1, weight=1)
 
         # Ruta base
@@ -935,14 +1001,10 @@ class ArteMakerApp(tk.Tk):
         self._entry_row = GlowEntry(card_in, self._ruta_base)
         self._entry_row.grid(row=1, column=0, columnspan=2, sticky="ew",
                              padx=(0, 8), pady=(2, 2))
-        tk.Button(card_in, text="Explorar…",
-                  bg=C["border"], fg=C["accent"], relief="flat",
-                  font=FONT_SMALL, cursor="hand2",
-                  activebackground=C["accent"], activeforeground=C["bg"],
-                  command=self._explorar_base
-                  ).grid(row=1, column=2, pady=(2, 2), padx=(4, 0))
+        self._btn_exp_base = self._explore_btn(card_in, self._explorar_base)
+        self._btn_exp_base.grid(row=1, column=2, pady=(2, 2), padx=(4, 0))
         tk.Label(card_in,
-                 text="  Puede ser la carpeta del vehículo, modelo o versión — la búsqueda es recursiva",
+                 text="  Puede ser la carpeta del vehiculo, modelo o version — la busqueda es recursiva",
                  font=FONT_SMALL, bg=C["panel"], fg=C["txt_dim"]
                  ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(0, 8))
 
@@ -951,56 +1013,110 @@ class ArteMakerApp(tk.Tk):
         self._entry_dwg = GlowEntry(card_in, self._dwg_plano)
         self._entry_dwg.grid(row=4, column=0, columnspan=2, sticky="ew",
                               padx=(0, 8), pady=(2, 2))
-        tk.Button(card_in, text="Explorar…",
-                  bg=C["border"], fg=C["accent"], relief="flat",
-                  font=FONT_SMALL, cursor="hand2",
-                  activebackground=C["accent"], activeforeground=C["bg"],
-                  command=self._explorar_dwg
-                  ).grid(row=4, column=2, pady=(2, 2), padx=(4, 0))
-        tk.Label(card_in, text="  Necesario para EXTRAER PLANO y para la superposición",
+        self._btn_exp_dwg = self._explore_btn(card_in, self._explorar_dwg)
+        self._btn_exp_dwg.grid(row=4, column=2, pady=(2, 2), padx=(4, 0))
+        tk.Label(card_in, text="  Necesario para EXTRAER PLANO y para la superposicion",
                  font=FONT_SMALL, bg=C["panel"], fg=C["txt_dim"]
                  ).grid(row=5, column=0, columnspan=3, sticky="w", pady=(0, 4))
 
-        # ── TARJETA: botones ──
-        card_btn = tk.Frame(body, bg=C["bg"])
-        card_btn.pack(fill="x", pady=(0, 10))
+        # ─── TARJETA: workflow buttons ───────────────────────────────────────
+        outer_wf, card_wf = self._card(body, "WORKFLOW")
+        outer_wf.pack(fill="x", pady=10)
+
+        btn_row = tk.Frame(card_wf, bg=C["panel"])
+        btn_row.pack(fill="x", pady=6)
 
         self._btn_extraer = NeonButton(
-            card_btn, "▶  EXTRAER PLANO",
-            self._extraer, C["btn_ok"], C["btn_ok2"], width=200, height=44)
-        self._btn_extraer.pack(side="left", padx=(0, 12))
+            btn_row,
+            text="▶  EXTRAER PLANO",
+            command=self._extraer,
+            color=C["btn_ok"],
+            hover_color=C["btn_ok2"],
+            width=200, height=48,
+            subtitle="Filtra layers del DWG original")
+        self._btn_extraer.pack(side="left", padx=10)
 
         self._btn_crear = NeonButton(
-            card_btn, "✦  CREAR ARTE",
-            self._crear_arte, "#7B2FBE", "#5A1F9A", width=185, height=44)
-        self._btn_crear.pack(side="left", padx=(0, 12))
+            btn_row,
+            text="✦  CREAR ARTE",
+            command=self._crear_arte,
+            color=C["purple"],
+            hover_color=C["purple2"],
+            width=185, height=48,
+            subtitle="Pipeline AutoCAD completo")
+        self._btn_crear.pack(side="left", padx=10)
 
         self._btn_comprobar = NeonButton(
-            card_btn, "◉  COMPROBAR ARTE",
-            self._comprobar, C["btn_warn"], C["btn_warn2"], width=210, height=44)
+            btn_row,
+            text="⊕  BUSCAR ARTE",
+            command=self._comprobar,
+            color=C["btn_warn"],
+            hover_color=C["btn_warn2"],
+            width=200, height=48,
+            subtitle="Encuentra artes existentes")
         self._btn_comprobar.pack(side="left")
 
-        self._lbl_status = tk.Label(card_btn, text="",
-                                    font=FONT_SMALL, bg=C["bg"], fg=C["accent"])
-        self._lbl_status.pack(side="left", padx=16)
+        # PulseBar — debajo de los botones, oculta hasta que haya actividad
+        self._pulse = PulseBar(card_wf)
+        self._pulse.pack(fill="x", pady=2)
 
-        # ── TARJETA: tabla ──
-        outer_tbl, card_tbl = self._card(
-            body, "  ARTES ENCONTRADOS  — doble clic en verde para superponer")
-        outer_tbl.pack(fill="x", pady=(0, 10))
+        # ─── TARJETA: resultados ─────────────────────────────────────────────
+        outer_tbl = tk.Frame(body, bg=C["border"], padx=1, pady=1)
+        outer_tbl.pack(fill="x", pady=10)
+
+        # Header de la tarjeta con badge dinámico
+        tbl_hdr = tk.Frame(outer_tbl, bg=C["panel2"], padx=12, pady=6)
+        tbl_hdr.pack(fill="x")
+        tbl_hdr.columnconfigure(1, weight=1)
+
+        self._lbl_tbl_titulo = tk.Label(
+            tbl_hdr,
+            text="ARTES ENCONTRADOS — 0 resultados",
+            font=("Segoe UI", 8, "bold"),
+            bg=C["panel2"], fg=C["txt_mid"])
+        self._lbl_tbl_titulo.grid(row=0, column=0, sticky="w")
+
+        # Badge de estado
+        self._badge_estado = tk.Label(
+            tbl_hdr,
+            text="— busca primero",
+            font=("Segoe UI", 8, "bold"),
+            bg=C["panel2"], fg=C["txt_dim"],
+            padx=8, pady=2)
+        self._badge_estado.grid(row=0, column=1, sticky="e")
+
+        # Botón "Abrir carpeta"
+        self._btn_abrir_carpeta = tk.Button(
+            tbl_hdr,
+            text="Abrir carpeta",
+            bg=C["border"], fg=C["accent"],
+            relief="flat", font=FONT_SMALL,
+            cursor="hand2",
+            activebackground=C["accent"], activeforeground=C["bg"],
+            command=self._abrir_carpeta_arte)
+        self._btn_abrir_carpeta.grid(row=0, column=2, sticky="e", padx=(8, 0))
+
+        card_tbl = tk.Frame(outer_tbl, bg=C["panel"], padx=12, pady=8)
+        card_tbl.pack(fill="both", expand=True)
         card_tbl.columnconfigure(0, weight=1)
         card_tbl.rowconfigure(0, weight=1)
 
-        cols = ("estado", "ruta", "archivo")
+        cols = ("estado", "ruta", "archivo", "tipo")
         self._tree = ttk.Treeview(card_tbl, columns=cols, show="headings", height=6)
         self._tree.heading("estado",  text="Estado")
         self._tree.heading("ruta",    text="Ruta relativa")
         self._tree.heading("archivo", text="Archivo")
-        self._tree.column("estado",  width=120, anchor="center", stretch=False)
-        self._tree.column("ruta",    width=380)
-        self._tree.column("archivo", width=280)
-        self._tree.tag_configure("match", background="#0A2010", foreground=C["log_ok"])
-        self._tree.tag_configure("other", background=C["panel2"], foreground=C["txt_dim"])
+        self._tree.heading("tipo",    text="Tipo")
+        self._tree.column("estado",  width=110, anchor="center", stretch=False)
+        self._tree.column("ruta",    width=350)
+        self._tree.column("archivo", width=260)
+        self._tree.column("tipo",    width=70, anchor="center", stretch=False)
+        self._tree.tag_configure("match",
+                                 background="#0A2015",
+                                 foreground=C["log_ok"])
+        self._tree.tag_configure("other",
+                                 background=C["panel2"],
+                                 foreground=C["txt_dim"])
         self._tree.grid(row=0, column=0, sticky="nsew")
 
         sb = ttk.Scrollbar(card_tbl, orient="vertical", command=self._tree.yview)
@@ -1008,9 +1124,36 @@ class ArteMakerApp(tk.Tk):
         self._tree.configure(yscrollcommand=sb.set)
         self._tree.bind("<Double-1>", self._on_doble_click)
 
-        # ── TARJETA: log ──
-        outer_log, card_log = self._card(body, "  CONSOLA")
+        # Hint doble clic
+        tk.Label(card_tbl,
+                 text="  Doble clic en una fila verde para superponer en AutoCAD",
+                 font=FONT_SMALL, bg=C["panel"], fg=C["txt_dim"]
+                 ).grid(row=1, column=0, columnspan=2, sticky="w", pady=(4, 0))
+
+        # ─── TARJETA: consola ────────────────────────────────────────────────
+        outer_log = tk.Frame(body, bg=C["border"], padx=1, pady=1)
         outer_log.pack(fill="both", expand=True)
+
+        log_hdr = tk.Frame(outer_log, bg=C["panel2"], padx=12, pady=6)
+        log_hdr.pack(fill="x")
+        log_hdr.columnconfigure(1, weight=1)
+
+        tk.Label(log_hdr, text="CONSOLA",
+                 font=("Segoe UI", 8, "bold"),
+                 bg=C["panel2"], fg=C["txt_mid"]
+                 ).grid(row=0, column=0, sticky="w")
+
+        tk.Button(log_hdr,
+                  text="Limpiar",
+                  bg=C["border"], fg=C["txt_dim"],
+                  relief="flat", font=FONT_SMALL,
+                  cursor="hand2",
+                  activebackground=C["log_err"], activeforeground="white",
+                  command=self._limpiar_log
+                  ).grid(row=0, column=2, sticky="e")
+
+        card_log = tk.Frame(outer_log, bg=C["log_bg"], padx=10, pady=8)
+        card_log.pack(fill="both", expand=True)
         card_log.columnconfigure(0, weight=1)
         card_log.rowconfigure(0, weight=1)
 
@@ -1018,20 +1161,30 @@ class ArteMakerApp(tk.Tk):
                                font=FONT_LOG, relief="flat", state="disabled",
                                wrap="word", bd=0)
         self._log_w.grid(row=0, column=0, sticky="nsew")
-        for tag, color in [("ok",  C["log_ok"]), ("warn", C["log_warn"]),
-                            ("err", C["log_err"]), ("dim", C["log_dim"])]:
+
+        for tag, color in [
+            ("ok",   C["log_ok"]),
+            ("warn", C["log_warn"]),
+            ("err",  C["log_err"]),
+            ("dim",  C["log_dim"]),
+            ("ts",   C["txt_dim"]),
+        ]:
             self._log_w.tag_config(tag, foreground=color)
 
         sb2 = ttk.Scrollbar(card_log, orient="vertical", command=self._log_w.yview)
         sb2.grid(row=0, column=1, sticky="ns")
         self._log_w.configure(yscrollcommand=sb2.set)
 
+    # ── Widgets helpers ───────────────────────────────────────────────────────
+
     def _card(self, parent, title=""):
         """Retorna (outer, inner): outer se coloca con pack/grid, inner recibe widgets."""
         outer = tk.Frame(parent, bg=C["border"], padx=1, pady=1)
         if title:
-            tk.Label(outer, text=title, font=("Segoe UI", 8, "bold"),
-                     bg=C["border"], fg=C["txt_dim"]).pack(anchor="w", padx=6, pady=(3, 0))
+            hdr = tk.Frame(outer, bg=C["panel2"], padx=12, pady=5)
+            hdr.pack(fill="x")
+            tk.Label(hdr, text=title, font=("Segoe UI", 8, "bold"),
+                     bg=C["panel2"], fg=C["txt_mid"]).pack(anchor="w")
         inner = tk.Frame(outer, bg=C["panel"], padx=12, pady=10)
         inner.pack(fill="both", expand=True)
         return outer, inner
@@ -1040,6 +1193,13 @@ class ArteMakerApp(tk.Tk):
         tk.Label(parent, text=text, font=("Segoe UI", 9, "bold"),
                  bg=C["panel"], fg=C["txt_mid"], anchor="w"
                  ).grid(row=row, column=0, columnspan=3, sticky="w", pady=(8, 0))
+
+    def _explore_btn(self, parent, cmd):
+        return tk.Button(parent, text="Explorar...",
+                         bg=C["border"], fg=C["accent"], relief="flat",
+                         font=FONT_SMALL, cursor="hand2",
+                         activebackground=C["accent"], activeforeground=C["bg"],
+                         command=cmd)
 
     # ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -1050,8 +1210,15 @@ class ArteMakerApp(tk.Tk):
 
     def _log(self, msg: str, tag: str = ""):
         self._log_w.configure(state="normal")
-        self._log_w.insert("end", f"{time.strftime('%H:%M:%S')}  {msg}\n", tag or "")
+        ts = time.strftime("%H:%M:%S")
+        self._log_w.insert("end", f"{ts}  ", "ts")
+        self._log_w.insert("end", f"{msg}\n", tag or "")
         self._log_w.see("end")
+        self._log_w.configure(state="disabled")
+
+    def _limpiar_log(self):
+        self._log_w.configure(state="normal")
+        self._log_w.delete("1.0", "end")
         self._log_w.configure(state="disabled")
 
     def _busy(self, activo: bool):
@@ -1060,18 +1227,31 @@ class ArteMakerApp(tk.Tk):
         self._btn_comprobar.configure_state(not activo)
         if activo:
             self._dot_count = 0
+            self.configure(cursor="watch")
+            self._pulse.start()
             self._animar_status()
         else:
-            self._lbl_status.configure(text="")
+            self.configure(cursor="")
+            self._pulse.stop()
         self.update_idletasks()
 
     def _animar_status(self):
-        if not getattr(self._btn_extraer, "_enabled", True) is False:
+        # Solo anima si los botones están deshabilitados (= procesando)
+        if getattr(self._btn_extraer, "_enabled", True):
             return
-        puntos = "●" * (self._dot_count % 4 + 1) + "○" * (3 - self._dot_count % 4)
-        self._lbl_status.configure(text=f"  Procesando  {puntos}")
         self._dot_count += 1
         self.after(300, self._animar_status)
+
+    def _on_dwg_changed(self, *_):
+        """Actualiza el badge del header cuando cambia el campo DWG."""
+        dwg = self._dwg_plano.get().strip().strip('"')
+        if dwg:
+            nombre = os.path.basename(dwg)
+            self._badge_lbl.configure(text=nombre, fg=C["accent"])
+            self._badge_frame.configure(bg=C["panel2"])
+            self._badge_lbl.configure(bg=C["panel2"])
+        else:
+            self._badge_lbl.configure(text="— sin seleccionar —", fg=C["txt_dim"])
 
     def _explorar_base(self):
         ruta = filedialog.askdirectory(title="Seleccionar carpeta (vehiculo / modelo / version)")
@@ -1108,15 +1288,13 @@ class ArteMakerApp(tk.Tk):
                 return False
         return True
 
-    # ── EXTRAER PLANO ─────────────────────────────────────────────────────────
-
     # ── CREAR ARTE ────────────────────────────────────────────────────────────
 
     def _crear_arte(self):
         dwg = self._dwg_plano.get().strip().strip('"')
         if not dwg:
             messagebox.showwarning("Campo requerido",
-                                   "Selecciona el archivo DWG del plano extraído (_PLANO.dwg).")
+                                   "Selecciona el archivo DWG del plano extraido (_PLANO.dwg).")
             return
         if not os.path.isfile(dwg):
             messagebox.showerror("Archivo no encontrado", f"No existe:\n{dwg}")
@@ -1130,7 +1308,7 @@ class ArteMakerApp(tk.Tk):
         self._log(f"Plano: {os.path.basename(ruta_dwg)}", "dim")
         try:
             _crear_arte_autocad(ruta_dwg, log_fn=lambda m: self._log(m, "dim"))
-            self._log("✔ Arte completado.", "ok")
+            self._log("Arte completado.", "ok")
         except RuntimeError as e:
             self._log(str(e), "err")
             self.after(0, lambda: messagebox.showerror("Error", str(e)))
@@ -1156,7 +1334,7 @@ class ArteMakerApp(tk.Tk):
         self._log(f"Plano : {os.path.basename(ruta_plano)}", "dim")
 
         nombre_base   = os.path.splitext(os.path.basename(ruta_plano))[0]
-        ruta_destino  = _ruta_planos(ruta_plano)           # crea PLANOS/ junto al DWG
+        ruta_destino  = _ruta_planos(ruta_plano)
         ruta_filtrada = os.path.join(ruta_destino, f"{nombre_base}_PLANO.dwg")
 
         self._log(f"Destino: {ruta_filtrada}", "dim")
@@ -1175,13 +1353,13 @@ class ArteMakerApp(tk.Tk):
                 log_fn=lambda m: self._log(m, "dim"),
             )
         except Exception as e:
-            self._log(f"ERROR extracción: {e}", "err")
+            self._log(f"ERROR extraccion: {e}", "err")
             motor.quit()
             self._busy(False)
             return
 
         motor.quit()
-        self._log("Extracción completada.", "ok")
+        self._log("Extraccion completada.", "ok")
         self._log(f"DWG limpio → {ruta_filtrada}", "ok")
         self._log("─" * 56)
         self._log("SIGUIENTE PASO en Rhino:", "warn")
@@ -1195,7 +1373,7 @@ class ArteMakerApp(tk.Tk):
 
         self._busy(False)
 
-    # ── COMPROBAR ARTE ────────────────────────────────────────────────────────
+    # ── BUSCAR ARTE ───────────────────────────────────────────────────────────
 
     def _comprobar(self):
         if not self._validar(necesita_dwg=False):
@@ -1208,14 +1386,14 @@ class ArteMakerApp(tk.Tk):
         dwg_plano = self._dwg_plano.get().strip().strip('"')
 
         self._log("=" * 56)
-        self._log("COMPROBAR ARTE — buscando artes...", "ok")
+        self._log("BUSCAR ARTE — buscando artes...", "ok")
         self._log(f"Buscando en: {ruta_base}", "dim")
 
         codigos = _extraer_codigos(dwg_plano) if dwg_plano else []
         if codigos:
-            self._log(f'Códigos buscados: {" | ".join(codigos)}', "dim")
+            self._log(f'Codigos buscados: {" | ".join(codigos)}', "dim")
         else:
-            self._log("Sin código de plano — se mostrarán todos los artes.", "warn")
+            self._log("Sin codigo de plano — se mostraran todos los artes.", "warn")
 
         resultados = _buscar_artes(ruta_base, codigos)
         self._resultados = resultados
@@ -1233,12 +1411,58 @@ class ArteMakerApp(tk.Tk):
     def _poblar_tabla(self, resultados: list):
         for item in self._tree.get_children():
             self._tree.delete(item)
+
         for r in resultados:
-            estado = "✔  COINCIDE"
-            tag    = "match"
+            ext = os.path.splitext(r["archivo"])[1].upper().lstrip(".")
+            tipo = ext if ext else "?"
             self._tree.insert("", "end",
-                              values=(estado, r["version"], r["archivo"]),
-                              tags=(tag,))
+                              values=("OK  COINCIDE", r["version"], r["archivo"], tipo),
+                              tags=("match",))
+
+        # Actualizar header count
+        n = len(resultados)
+        self._lbl_tbl_titulo.configure(
+            text=f"ARTES ENCONTRADOS — {n} resultado{'s' if n != 1 else ''}")
+
+        # Actualizar badge de estado
+        if n > 0:
+            self._badge_estado.configure(
+                text=f"OK  EXISTE ({n})",
+                fg=C["log_ok"],
+                bg=C["panel2"])
+        elif self._dwg_plano.get().strip():
+            self._badge_estado.configure(
+                text="X  NO ENCONTRADO",
+                fg=C["log_err"],
+                bg=C["panel2"])
+        else:
+            self._badge_estado.configure(
+                text="— busca primero",
+                fg=C["txt_dim"],
+                bg=C["panel2"])
+
+    def _abrir_carpeta_arte(self):
+        """Abre el explorador en la carpeta del arte seleccionado."""
+        sel = self._tree.selection()
+        if not sel:
+            # Sin selección, intentar con el primer resultado
+            if not self._resultados:
+                messagebox.showinfo("Sin seleccion",
+                                    "Selecciona un arte de la tabla primero.")
+                return
+            r = self._resultados[0]
+        else:
+            idx = self._tree.index(sel[0])
+            if idx >= len(self._resultados):
+                return
+            r = self._resultados[idx]
+
+        carpeta = os.path.dirname(r["ruta_completa"])
+        import subprocess
+        try:
+            subprocess.Popen(["explorer", carpeta])
+        except Exception as e:
+            messagebox.showerror("Error", f"No se pudo abrir el explorador:\n{e}")
 
     def _on_doble_click(self, _event):
         sel = self._tree.selection()
@@ -1258,7 +1482,7 @@ class ArteMakerApp(tk.Tk):
         if not r["ruta_completa"].lower().endswith(".dwg"):
             messagebox.showinfo(
                 "Solo DWG",
-                f"La superposición requiere un archivo DWG.\n{r['archivo']}")
+                f"La superposicion requiere un archivo DWG.\n{r['archivo']}")
             return
 
         self._log(f"Superponiendo: {r['archivo']}", "ok")
@@ -1273,9 +1497,9 @@ class ArteMakerApp(tk.Tk):
         try:
             _overlay_autocad(ruta_arte, ruta_plano,
                              log_fn=lambda m: self._log(m, "dim"))
-            self._log("Superposición lista en AutoCAD.", "ok")
+            self._log("Superposicion lista en AutoCAD.", "ok")
             self._log(
-                "Si el perímetro del plano (XREF) coincide con el arte → ✔ correcto.", "ok")
+                "Si el perimetro del plano (XREF) coincide con el arte → OK correcto.", "ok")
         except RuntimeError as e:
             self._log(str(e), "err")
         except Exception as e:

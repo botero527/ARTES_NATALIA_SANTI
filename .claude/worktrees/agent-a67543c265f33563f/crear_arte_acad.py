@@ -209,97 +209,32 @@ def hatch_solido(msp, doc, outer, inner, layer):
 
 # ── Diálogo cajetín ───────────────────────────────────────────────────────────
 
-# Paleta de colores
-_C = {
-    "bg":        "#12131A",   # fondo principal
-    "panel":     "#1C1E2B",   # panel de sección
-    "card":      "#22253A",   # tarjeta de campo
-    "border":    "#2E3250",   # borde sutil
-    "accent":    "#4D7EFF",   # azul AGP
-    "accent2":   "#2D55CC",   # azul oscuro hover
-    "success":   "#3ECF8E",   # verde confirmación
-    "text":      "#E8EAFF",   # texto principal
-    "muted":     "#6B7099",   # texto secundario / placeholder
-    "auto_fg":   "#4D7EFF",   # auto-rellenado
-    "entry_bg":  "#1A1C2A",   # fondo input
-    "entry_act": "#1F2238",   # fondo input activo
-    "sep":       "#2A2D45",   # separador
-    "danger":    "#FF5757",   # cancelar
-    "danger2":   "#CC3030",
-}
-
-
-def _rounded_btn(parent, text, cmd, color, hover_color, fg="#FFFFFF",
-                 width=160, height=40, radius=10, font_size=11):
-    """Botón con fondo de color usando Canvas (look moderno)."""
-    import tkinter as tk
-    cv = tk.Canvas(parent, width=width, height=height,
-                   bg=parent["bg"], highlightthickness=0, bd=0, cursor="hand2")
-
-    def draw(c):
-        cv.delete("all")
-        r = radius
-        cv.create_arc(0, 0, r*2, r*2, start=90, extent=90, fill=c, outline=c)
-        cv.create_arc(width-r*2, 0, width, r*2, start=0, extent=90, fill=c, outline=c)
-        cv.create_arc(0, height-r*2, r*2, height, start=180, extent=90, fill=c, outline=c)
-        cv.create_arc(width-r*2, height-r*2, width, height, start=270, extent=90, fill=c, outline=c)
-        cv.create_rectangle(r, 0, width-r, height, fill=c, outline=c)
-        cv.create_rectangle(0, r, width, height-r, fill=c, outline=c)
-        cv.create_text(width//2, height//2, text=text, fill=fg,
-                       font=("Segoe UI", font_size, "bold"))
-
-    draw(color)
-    cv.bind("<Enter>",    lambda _: draw(hover_color))
-    cv.bind("<Leave>",    lambda _: draw(color))
-    cv.bind("<Button-1>", lambda _: cmd())
-    return cv
-
-
-def _section_header(parent, text):
-    import tkinter as tk
-    f = tk.Frame(parent, bg=_C["bg"])
-    tk.Label(f, text=text, font=("Segoe UI", 8, "bold"),
-             fg=_C["accent"], bg=_C["bg"]).pack(side="left", padx=(0, 8))
-    tk.Frame(f, bg=_C["sep"], height=1).pack(side="left", fill="x", expand=True, pady=1)
-    return f
-
-
-def _make_entry(parent, width_chars=28):
-    import tkinter as tk
-    var = tk.StringVar()
-    e = tk.Entry(parent, textvariable=var, width=width_chars,
-                 bg=_C["entry_bg"], fg=_C["text"], insertbackground=_C["text"],
-                 relief="flat", font=("Segoe UI", 10),
-                 highlightthickness=1, highlightbackground=_C["border"],
-                 highlightcolor=_C["accent"], bd=4)
-    return e, var
-
-
 def dialogo_cajetin(nombre_plano=""):
+    """
+    Muestra el diálogo de campos del cajetín.
+    Retorna dict {campo: valor} o None si canceló.
+    """
     import tkinter as tk
+    from tkinter import ttk
     import re as _r
 
     hoy = datetime.date.today().strftime("%d.%m.%Y")
 
-    SECCIONES = [
-        ("DATOS DEL PLANO", [
-            ("DIBUJO",    "Dibujo",        None),
-            ("VEHICULO",  "Vehículo",       None),
-            ("MODELO",    "Modelo / Año",   "auto"),
-            ("COD PLANO", "Código de plano",None),
-            ("NAGS",      "NAGS",           "auto"),
-            ("VERSION",   "Versión",        "auto"),
-            ("PIEZA",     "Pieza",          "auto"),
-            ("VITRO",     "Vitro",          None),
-            ("MALLA",     "Malla",          None),
-        ]),
-        ("VALORES POR DEFECTO", [
-            ("FECHA",     "Fecha",          hoy),
-            ("REVISADO",  "Revisado por",   "Santiago P."),
-            ("MEDIDAS",   "Medidas",        "Milimetros"),
-            ("VISTA",     "Vista",          "Interna"),
-            ("ESCALA",    "Escala",         "1:1"),
-        ]),
+    FILAS = [
+        ("DIBUJO",    "Dibujo",           None),
+        ("VEHICULO",  "Vehículo",          None),
+        ("MODELO",    "Modelo (año)",      "auto"),
+        ("COD PLANO", "Cód. plano",        None),
+        ("NAGS",      "NAGS",              "auto"),
+        ("VERSION",   "Versión",           "auto"),
+        ("PIEZA",     "Pieza",             "auto"),
+        ("VITRO",     "Vitro",             None),
+        ("MALLA",     "Malla",             None),
+        ("FECHA",     "Fecha",             hoy),
+        ("REVISADO",  "Revisado",          "Santiago P."),
+        ("MEDIDAS",   "Medidas",           "Milimetros"),
+        ("VISTA",     "Vista",             "Interna"),
+        ("ESCALA",    "Escala",            "1:1"),
     ]
 
     def parsear_cod(cod):
@@ -316,130 +251,82 @@ def dialogo_cajetin(nombre_plano=""):
     resultado = [None]
 
     root = tk.Tk()
-    root.title("AGP Arte Maker")
+    root.title("Rellenar Cajetín — AGP Arte Maker")
     root.resizable(False, False)
     root.attributes("-topmost", True)
-    root.configure(bg=_C["bg"])
 
-    # ── Título / header ───────────────────────────────────────────────────────
-    hdr = tk.Frame(root, bg=_C["accent"], height=4)
-    hdr.pack(fill="x")
-
-    title_frame = tk.Frame(root, bg=_C["bg"], pady=18)
-    title_frame.pack(fill="x", padx=28)
-
-    tk.Label(title_frame, text="AGP  Arte Maker",
-             font=("Segoe UI", 18, "bold"), fg=_C["text"], bg=_C["bg"]).pack(anchor="w")
-    tk.Label(title_frame, text=f"Cajetín  ·  {nombre_plano or 'nuevo plano'}",
-             font=("Segoe UI", 9), fg=_C["muted"], bg=_C["bg"]).pack(anchor="w", pady=(2, 0))
-
-    # ── Cuerpo ────────────────────────────────────────────────────────────────
-    body = tk.Frame(root, bg=_C["bg"], padx=28)
-    body.pack(fill="both", expand=True)
+    frame = ttk.Frame(root, padding=16)
+    frame.grid(row=0, column=0, sticky="nsew")
 
     entries = {}
+    row_w = 0
+    sep_puesto = False
 
-    for sec_titulo, filas in SECCIONES:
-        _section_header(body, sec_titulo).pack(fill="x", pady=(14, 8))
+    for campo, etiqueta, default in FILAS:
+        if campo == "FECHA" and not sep_puesto:
+            ttk.Separator(frame, orient="horizontal").grid(
+                row=row_w, column=0, columnspan=2, sticky="ew", pady=(8, 4))
+            ttk.Label(frame, text="— valores por defecto (editables) —",
+                      foreground="gray").grid(row=row_w+1, column=0,
+                      columnspan=2, pady=(0, 6))
+            row_w += 2
+            sep_puesto = True
 
-        for campo, etiqueta, default in filas:
-            row = tk.Frame(body, bg=_C["bg"], pady=3)
-            row.pack(fill="x")
+        ttk.Label(frame, text=etiqueta + ":", anchor="e", width=18).grid(
+            row=row_w, column=0, sticky="e", pady=3, padx=(0, 8))
+        ent = ttk.Entry(frame, width=36)
+        ent.grid(row=row_w, column=1, sticky="w", pady=3)
 
-            lbl = tk.Label(row, text=etiqueta, font=("Segoe UI", 9),
-                           fg=_C["muted"], bg=_C["bg"], width=17, anchor="e")
-            lbl.pack(side="left", padx=(0, 10))
+        if isinstance(default, str) and default not in ("auto",):
+            ent.insert(0, default)
+            ent.configure(foreground="gray")
 
-            ent, var = _make_entry(row, width_chars=30)
-            ent.pack(side="left", ipady=5)
+        if default == "auto":
+            ent.configure(foreground="gray")
 
-            # badge "auto" si aplica
-            if default == "auto":
-                tk.Label(row, text="auto", font=("Segoe UI", 7, "bold"),
-                         fg=_C["accent"], bg=_C["bg"], padx=4).pack(side="left", padx=(4, 0))
+        entries[campo] = ent
+        row_w += 1
 
-            if isinstance(default, str) and default != "auto":
-                ent.insert(0, default)
-                ent.configure(fg=_C["muted"])
-
-                def _on_focus_in(e, w=ent, d=default):
-                    if w.get() == d:
-                        w.configure(fg=_C["text"])
-
-                def _on_focus_out_default(e, w=ent, d=default):
-                    if not w.get().strip():
-                        w.delete(0, tk.END)
-                        w.insert(0, d)
-                        w.configure(fg=_C["muted"])
-
-                ent.bind("<FocusIn>",  _on_focus_in)
-                ent.bind("<FocusOut>", _on_focus_out_default)
-
-            entries[campo] = ent
-
-    # ── Auto-rellenado lógica ─────────────────────────────────────────────────
     def on_cod_plano(*_):
         n, v, p = parsear_cod(entries["COD PLANO"].get())
         for k, val in [("NAGS", n), ("VERSION", v), ("PIEZA", p)]:
             entries[k].delete(0, tk.END)
             entries[k].insert(0, val)
-            entries[k].configure(fg=_C["auto_fg"])
+            entries[k].configure(foreground="black")
 
     def on_vehiculo(*_):
         anio = extraer_anio(entries["VEHICULO"].get())
         if anio:
             entries["MODELO"].delete(0, tk.END)
             entries["MODELO"].insert(0, anio)
-            entries["MODELO"].configure(fg=_C["auto_fg"])
+            entries["MODELO"].configure(foreground="black")
 
     entries["COD PLANO"].bind("<FocusOut>", on_cod_plano)
     entries["COD PLANO"].bind("<Return>",   on_cod_plano)
     entries["VEHICULO"].bind("<FocusOut>",  on_vehiculo)
     entries["VEHICULO"].bind("<Return>",    on_vehiculo)
 
-    # Pre-llenar
+    # Pre-llenar COD PLANO con el nombre del plano
     if nombre_plano:
         entries["COD PLANO"].delete(0, tk.END)
         entries["COD PLANO"].insert(0, nombre_plano)
-        entries["COD PLANO"].configure(fg=_C["text"])
         on_cod_plano()
 
-    entries["DIBUJO"].focus_set()
-
-    # ── Navegación Tab entre campos ───────────────────────────────────────────
-    all_entries = [entries[c] for _, filas in SECCIONES for c, _, _ in filas]
-    for i, e in enumerate(all_entries):
-        nxt = all_entries[(i + 1) % len(all_entries)]
-        e.bind("<Tab>", lambda ev, n=nxt: (n.focus_set(), n.select_range(0, tk.END), "break"))
-        e.bind("<Return>", lambda ev, n=nxt: (n.focus_set(), n.select_range(0, tk.END), "break"))
-
-    # ── Botones ───────────────────────────────────────────────────────────────
-    btn_area = tk.Frame(root, bg=_C["bg"], pady=20, padx=28)
-    btn_area.pack(fill="x")
+    list(entries.values())[0].focus_set()
 
     def aceptar(*_):
-        resultado[0] = {c: entries[c].get().strip() for _, filas in SECCIONES for c, _, _ in filas}
+        resultado[0] = {c: e.get().strip() for c, e in entries.items()}
         root.destroy()
 
     def cancelar(*_):
         root.destroy()
 
-    _rounded_btn(btn_area, "✔  Aplicar al cajetín", aceptar,
-                 _C["accent"], _C["accent2"], width=200, height=42).pack(side="left", padx=(0, 12))
-    _rounded_btn(btn_area, "✕  Cancelar", cancelar,
-                 "#2A2A3A", "#3A3A4A", fg=_C["muted"], width=130, height=42).pack(side="left")
-
-    tk.Label(btn_area, text="Enter / Tab para navegar campos  ·  Esc para cancelar",
-             font=("Segoe UI", 7), fg=_C["muted"], bg=_C["bg"]).pack(
-             side="right", padx=4)
-
     root.bind("<Escape>", cancelar)
 
-    # ── Centrar ventana en pantalla ───────────────────────────────────────────
-    root.update_idletasks()
-    w, h = root.winfo_width(), root.winfo_height()
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    root.geometry(f"+{(sw-w)//2}+{(sh-h)//2}")
+    btn_frame = ttk.Frame(frame)
+    btn_frame.grid(row=row_w, column=0, columnspan=2, pady=(14, 0))
+    ttk.Button(btn_frame, text="  Aceptar  ", command=aceptar).pack(side="left", padx=8)
+    ttk.Button(btn_frame, text="  Cancelar ", command=cancelar).pack(side="left", padx=8)
 
     root.mainloop()
     return resultado[0]
@@ -794,7 +681,7 @@ def main():
                     # Primera pasada sin REVERSE
                     ejecutar_divide(off_bn.Handle)
                     log("  Degradé en layer k3 ✔")
-                    
+
                     # Preguntar al usuario si el degradé quedó correcto
                     respuesta = ctypes.windll.user32.MessageBoxW(
                         0,
