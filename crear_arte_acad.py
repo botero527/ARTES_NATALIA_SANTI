@@ -84,11 +84,17 @@ def centro_bbox(ents):
     return (min(xs)+max(xs))/2, (min(ys)+max(ys))/2
 
 
-def asegurar_layer(doc, nombre):
+def asegurar_layer(doc, nombre, color=None):
+    """Crea el layer si no existe. Si se pasa color, siempre lo aplica."""
     try:
-        doc.Layers.Item(nombre)
+        lyr = doc.Layers.Item(nombre)
     except Exception:
-        doc.Layers.Add(nombre)
+        lyr = doc.Layers.Add(nombre)
+    if color is not None:
+        try:
+            lyr.color = color
+        except Exception:
+            pass
 
 
 def alerta(titulo, msg):
@@ -170,16 +176,13 @@ def offset_inward(ent, dist):
             todos.extend(results)
         except Exception:
             pass
-    # Primera pasada: preferir el que tenga área menor que el original
     for r in todos:
         a = area_bbox(r)
         if a < area_orig and a < mejor_area:
             mejor_area = a
             mejor = r
-    # Si ninguno pasó el filtro de área, tomar el de menor área absoluta
     if mejor is None and todos:
         mejor = min(todos, key=area_bbox)
-    # Borrar los descartados
     for r in todos:
         if r != mejor:
             try: r.Delete()
@@ -523,13 +526,14 @@ def actualizar_texto_cajetin(msp, valores):
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
-def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
+def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_index=0):
     """
     Pipeline completo de creación de arte.
     doc            : AutoCAD Document COM object ya abierto.
     log_fn         : función de logging (default: log del módulo).
     valores_cajetin: dict con datos del cajetín; si None muestra el diálogo.
     ruta_salida    : ruta .dwg donde guardar; si None no guarda.
+    perim_index    : índice de la pieza a procesar (0=más grande, 1=segunda, etc.)
     """
     if log_fn is None:
         log_fn = log
@@ -579,25 +583,61 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
     else:
         log_fn("  Radios OK ✔")
 
-    # ── 4. Detectar degradé ───────────────────────────────────────────────
-    bn_ents = sorted(
-        [e for e in ents_por_patron(msp, PAT_BN)
-         if e.Closed and "Polyline" in e.ObjectName],
+    # ── 4. Todos los BN/PHANTOM cerrados ─────────────────────────────────
+    def _es_poly_cerrada(e):
+        try:
+            return "Polyline" in e.ObjectName and e.Closed
+        except Exception:
+            return False
+    bn_ents_todos = sorted(
+        [e for e in ents_por_patron(msp, PAT_BN) if _es_poly_cerrada(e)],
         key=area_bbox, reverse=True)
-    CON_DEGRADE = len(bn_ents) >= 2
-    bn_ent = bn_ents[0] if bn_ents else None
-    log_fn(f"[4] BN encontrados: {len(bn_ents)} → {'CON degradé' if CON_DEGRADE else 'SIN degradé'}")
+    log_fn(f"[4] BN cerrados totales en doc: {len(bn_ents_todos)}")
 
-    # ── 5. Perímetro ──────────────────────────────────────────────────────
+    # ── 5. Perímetro — tomar el más grande ────────────────────────────────
     perim_ents = sorted(
-        [e for e in ents_por_patron(msp, PAT_PERIM)
-         if e.Closed and "Polyline" in e.ObjectName],
+        [e for e in ents_por_patron(msp, PAT_PERIM) if _es_poly_cerrada(e)],
         key=area_bbox, reverse=True)
     if not perim_ents:
         alerta_stop("AGP Arte Maker — Error", "No se encontró curva PERIMETRO cerrada.")
         return
-    perim_ent = perim_ents[0]
-    log_fn("  Perímetro encontrado ✔")
+    n_piezas = len(perim_ents)
+    idx = min(perim_index, n_piezas - 1)
+    perim_ent = perim_ents[idx]
+    if n_piezas > 1:
+        log_fn(f"  {n_piezas} piezas encontradas — procesando pieza {idx + 1}/{n_piezas} ✔")
+    else:
+        log_fn("  Perímetro encontrado ✔")
+
+    # Filtrar BN que pertenecen a ESTA pieza (centro dentro del bbox del perim)
+    def _bbox_ent(e):
+        try:
+            lo, hi = e.GetBoundingBox()
+            return lo[0], lo[1], hi[0], hi[1]
+        except Exception:
+            return None
+
+    p_bbox = _bbox_ent(perim_ent)
+    if p_bbox:
+        px0, py0, px1, py1 = p_bbox
+        # Ampliar un poco el bbox para tolerar entidades en el borde
+        mx = (px1 - px0) * 0.1
+        my = (py1 - py0) * 0.1
+        def _centro_ent(e):
+            b = _bbox_ent(e)
+            if not b: return None, None
+            return (b[0]+b[2])/2, (b[1]+b[3])/2
+        bn_ents = [e for e in bn_ents_todos
+                   if (lambda cx, cy: cx is not None
+                       and px0 - mx <= cx <= px1 + mx
+                       and py0 - my <= cy <= py1 + my)(*_centro_ent(e))]
+    else:
+        bn_ents = bn_ents_todos
+
+    # 1 BN = banda sólida (sin degradé), 2+ BN = exterior+interior → degradé
+    CON_DEGRADE = len(bn_ents) >= 2
+    bn_ent = bn_ents[0] if bn_ents else None
+    log_fn(f"  BN de esta pieza: {len(bn_ents)} → {'CON degradé' if CON_DEGRADE else 'SIN degradé'}")
 
     # ── Capturar handles del logo ANTES del import ────────────────────────
     _logo_handles = set()
@@ -735,9 +775,11 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
     else:
         log_fn("  WARN: no se encontró ningún objeto con layer CAJETIN.")
 
-    # ── 10. Crear layers de arte ──────────────────────────────────────────
-    for lyr in [LAYER_PLANES, LAYER_K2, LAYER_K, LAYER_K3]:
-        asegurar_layer(doc, lyr)
+    # ── 10. Crear layers de arte con colores correctos ───────────────────
+    asegurar_layer(doc, LAYER_PLANES, color=8)   # gris
+    asegurar_layer(doc, LAYER_K2,     color=3)   # verde
+    asegurar_layer(doc, LAYER_K,      color=5)   # azul
+    asegurar_layer(doc, LAYER_K3,     color=1)   # rojo
 
     # ── 11. Offset perímetro 0.5 ──────────────────────────────────────────
     log_fn(f"[11] Offset perímetro {OFFSET_PERIM} mm...")
@@ -747,16 +789,21 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
         return
     off_perim.Layer = LAYER_PLANES
 
+    # Refrescar msp antes de hatches — operaciones anteriores pueden haber dejado COM stale
+    msp = doc.ModelSpace
+
     # ── 12. Hatch k2 ──────────────────────────────────────────────────────
     log_fn("[12] Hatch k2...")
     hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
-    time.sleep(1.0)
+    time.sleep(1.2)
+    msp = doc.ModelSpace
 
     # ── 13. Hatch k ───────────────────────────────────────────────────────
     log_fn("[13] Hatch k...")
     if bn_ent:
         hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
-        time.sleep(1.0)
+        time.sleep(1.2)
+        msp = doc.ModelSpace
     else:
         log_fn("  WARN: no se encontró banda negra.")
 
@@ -883,13 +930,18 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None):
     # ── Guardar si se indicó ruta ─────────────────────────────────────────
     if ruta_salida:
         abs_salida = os.path.abspath(ruta_salida)
-        os.makedirs(os.path.dirname(abs_salida), exist_ok=True)
+        carpeta_salida = os.path.dirname(abs_salida)
+        if carpeta_salida:
+            os.makedirs(carpeta_salida, exist_ok=True)
+        time.sleep(0.5)
         doc.SaveAs(abs_salida)
         log_fn(f"  Guardado en: {abs_salida} ✔")
     else:
-        doc.SendCommand("QSAVE \n")
+        doc.SendCommand("QSAVE\n")
+        time.sleep(1.0)
 
     log_fn("=== Arte completado ✔ ===")
+    return n_piezas
 
 
 def main():
@@ -901,6 +953,21 @@ def main():
             alerta_stop("AGP Arte Maker", "AutoCAD no está abierto.\nAbre AutoCAD con el plano y vuelve a intentarlo.")
             return
         doc = acad.ActiveDocument
+        nombre = doc.Name
+
+        # Confirmar con el usuario qué archivo va a procesar
+        respuesta = ctypes.windll.user32.MessageBoxW(
+            0,
+            f"Se va a crear el arte sobre:\n\n  {nombre}\n\n"
+            f"¿Es el plano correcto?\n\n"
+            f"⚠ No cambies de pestaña en AutoCAD mientras corre el proceso.",
+            "AGP Arte Maker — Confirmar",
+            0x24   # MB_YESNO | MB_ICONQUESTION
+        )
+        if respuesta != 6:   # IDYES
+            return
+
+        doc.Activate()
         pipeline(doc)
         ctypes.windll.user32.MessageBoxW(0,
             "Arte creado correctamente.\nRevisa el resultado en AutoCAD.",

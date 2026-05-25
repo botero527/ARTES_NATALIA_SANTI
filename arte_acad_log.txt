@@ -803,3 +803,11 @@ Corrige y vuelve a ejecutar.
   Longitud: 1922.12 mm  pepas: 641
   Bloque '25' ya existe.
   Esperando 12.8s (DIVIDE)...
+  Cajetín: 15 texto(s) actualizados.
+  Cajetín: 15 texto(s) actualizados.
+  Cajetín: 15 texto(s) actualizados.
+  Cajetín: 15 texto(s) actualizados.
+  Cajetín: 10 texto(s) actualizados.
+  Cajetín: 10 texto(s) actualizados.
+  Cajetín: 15 texto(s) actualizados.
+  Cajetín: 15 texto(s) actualizados.

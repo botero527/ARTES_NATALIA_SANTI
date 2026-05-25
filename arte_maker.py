@@ -142,7 +142,6 @@ def _centro_bbox(ents):
         return None, None
     return (min(xs)+max(xs))/2, (min(ys)+max(ys))/2
 
-
 def _asegurar_layer(doc, nombre):
     try:
         doc.Layers.Item(nombre)
@@ -230,11 +229,14 @@ def _length_polyline(ent):
         return 0.0
 
 
-def _crear_arte_autocad(ruta_dwg: str, log_fn=None, valores_cajetin=None, ruta_salida: str = None):
-    """Abre el DWG y ejecuta el pipeline completo desde crear_arte_acad.pipeline()."""
+def _crear_arte_autocad(ruta_dwg: str, log_fn=None, valores_cajetin=None,
+                        ruta_salida: str = None, perim_index: int = 0) -> int:
+    """
+    Abre el DWG y ejecuta el pipeline. Devuelve el nº de piezas encontradas.
+    perim_index: índice de pieza a procesar (0=más grande).
+    """
     if log_fn is None:
         log_fn = print
-
     if _pipeline_acad is None:
         raise RuntimeError("No se pudo importar el pipeline desde crear_arte_acad.py")
 
@@ -254,9 +256,11 @@ def _crear_arte_autocad(ruta_dwg: str, log_fn=None, valores_cajetin=None, ruta_s
         except Exception:
             pass
 
-        _pipeline_acad(doc, log_fn=log_fn,
-                       valores_cajetin=valores_cajetin,
-                       ruta_salida=ruta_salida)
+        n = _pipeline_acad(doc, log_fn=log_fn,
+                           valores_cajetin=valores_cajetin,
+                           ruta_salida=ruta_salida,
+                           perim_index=perim_index)
+        return n or 1
     finally:
         pythoncom.CoUninitialize()
 
@@ -359,13 +363,16 @@ def _ruta_arte_salida(ruta_dwg_original: str, malla: str = "", pieza: str = "") 
     except Exception:
         pass
 
-    # Construir nombre del archivo
+    # Construir nombre del archivo: P {malla} {pieza}.dwg
     partes_nombre = [p.strip() for p in [malla, pieza] if p.strip()]
     if partes_nombre:
         nombre_archivo = "P " + " ".join(partes_nombre) + ".dwg"
     else:
         nombre_base    = os.path.splitext(os.path.basename(ruta_dwg_original))[0]
         nombre_archivo = f"P {nombre_base}.dwg"
+    # Eliminar dobles espacios por si algún campo tiene espacios internos raros
+    while "  " in nombre_archivo:
+        nombre_archivo = nombre_archivo.replace("  ", " ")
 
     return os.path.join(destino, nombre_archivo)
 
@@ -1237,35 +1244,64 @@ class ArteMakerApp(tk.Tk):
             self._busy(False)
             return
         motor.quit()
+        time.sleep(2.0)   # dar tiempo a AutoCAD para cerrar completamente el doc
         self._log(f"  Plano extraido ✔  {os.path.basename(ruta_filtrada)}", "ok")
 
-        # ─ Paso 2: Crear arte + guardar ──────────────────────────────────────
+        # ─ Paso 2: Crear arte — detectar cuántas piezas hay ──────────────────
         self._log("─" * 40)
         self._log("PASO 2/2 — Creando arte en AutoCAD...", "warn")
-        ruta_arte = _ruta_arte_salida(ruta_plano, malla, pieza)
-        self._log(f"  → {ruta_arte}", "dim")
+
+        import shutil, traceback as _tb
+
+        # Procesamos pieza 0 primero para descubrir n_piezas
+        ruta_arte_0 = _ruta_arte_salida(ruta_plano, malla, pieza)
+        self._log(f"  → {ruta_arte_0}", "dim")
 
         try:
-            _crear_arte_autocad(ruta_filtrada,
-                                log_fn=lambda m: self._log(m, "dim"),
-                                valores_cajetin=valores if valores else None,
-                                ruta_salida=ruta_arte)
-            self._log(f"Arte guardado ✔  {os.path.basename(ruta_arte)}", "ok")
+            n_piezas = _crear_arte_autocad(
+                ruta_filtrada,
+                log_fn=lambda m: self._log(m, "dim"),
+                valores_cajetin=valores if valores else None,
+                ruta_salida=ruta_arte_0,
+                perim_index=0)
+            self._log(f"Arte pieza 1 guardado ✔  {os.path.basename(ruta_arte_0)}", "ok")
         except Exception as e:
-            import traceback
             self._log(f"ERROR en creacion de arte: {e}", "err")
-            self._log(traceback.format_exc(), "err")
+            self._log(_tb.format_exc(), "err")
             self.after(0, lambda: messagebox.showerror("Error creando arte", str(e)))
             self._busy(False)
             return
 
+        # Si hay más piezas: copiar el plano extraído y procesar cada una
+        artes_creados = [ruta_arte_0]
+        for i in range(1, n_piezas):
+            self._log(f"─" * 40)
+            self._log(f"Procesando pieza {i+1}/{n_piezas}...", "warn")
+            pieza_sufijo = f"{pieza} {i+1}".strip() if pieza else str(i+1)
+            ruta_copia = ruta_filtrada.replace("_PLANO.dwg", f"_PLANO_p{i+1}.dwg")
+            try:
+                shutil.copy2(ruta_filtrada, ruta_copia)
+                ruta_arte_i = _ruta_arte_salida(ruta_plano, malla, pieza_sufijo)
+                self._log(f"  → {ruta_arte_i}", "dim")
+                _crear_arte_autocad(
+                    ruta_copia,
+                    log_fn=lambda m: self._log(m, "dim"),
+                    valores_cajetin=valores if valores else None,
+                    ruta_salida=ruta_arte_i,
+                    perim_index=i)
+                self._log(f"Arte pieza {i+1} guardado ✔  {os.path.basename(ruta_arte_i)}", "ok")
+                artes_creados.append(ruta_arte_i)
+            except Exception as e:
+                self._log(f"WARN pieza {i+1}: {e}", "warn")
+
         self._log("=" * 56)
-        self._log("TODO EN UNO completado.", "ok")
+        self._log(f"TODO EN UNO completado — {len(artes_creados)} arte(s).", "ok")
         self._log(f"  Plano  → {ruta_filtrada}", "ok")
-        self._log(f"  Arte   → {ruta_arte}", "ok")
+        for a in artes_creados:
+            self._log(f"  Arte   → {a}", "ok")
 
         import subprocess
-        self.after(0, lambda: subprocess.Popen(["explorer", os.path.dirname(ruta_arte)]))
+        self.after(0, lambda: subprocess.Popen(["explorer", os.path.dirname(ruta_arte_0)]))
         self._busy(False)
 
     # ── EXTRAER PLANO ─────────────────────────────────────────────────────────
