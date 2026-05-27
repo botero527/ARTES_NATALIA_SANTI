@@ -22,24 +22,29 @@ _TODOS_PATRONES = PATRONES_PERIMETRO + PATRONES_BN + PATRONES_LOGO
 
 # ─── helpers ──────────────────────────────────────────────────────────────────
 
-def _es_layer_objetivo(nombre_layer: str) -> bool:
+def _patron_match(nombre_layer: str, patron: str) -> bool:
     n = nombre_layer.upper().strip()
-    for p in _TODOS_PATRONES:
-        if p.upper() in n:
-            return True
-    return False
+    if "OEM" in n:
+        return False
+    p = patron.upper().strip()
+    if p.startswith("="):
+        return n == p[1:]
+    return p in n
+
+
+def _es_layer_objetivo(nombre_layer: str) -> bool:
+    return any(_patron_match(nombre_layer, p) for p in _TODOS_PATRONES)
 
 
 def _tipo_layer(nombre_layer: str) -> str | None:
-    n = nombre_layer.upper().strip()
     for p in PATRONES_PERIMETRO:
-        if p.upper() in n:
+        if _patron_match(nombre_layer, p):
             return "perimetro"
     for p in PATRONES_BN:
-        if p.upper() in n:
+        if _patron_match(nombre_layer, p):
             return "bn"
     for p in PATRONES_LOGO:
-        if p.upper() in n:
+        if _patron_match(nombre_layer, p):
             return "logo"
     return None
 

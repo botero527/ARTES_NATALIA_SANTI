@@ -14,7 +14,7 @@ RHINO_EXE = r"C:\Program Files\Rhino 8\System\Rhino.exe"
 
 # ─── PATRONES DE LAYERS EN AUTOCAD ────────────────────────────────────────────
 # Se hace coincidencia parcial (el nombre del layer CONTIENE el patrón)
-PATRONES_PERIMETRO = ["PERIMETRO"]
+PATRONES_PERIMETRO = ["=PERIMETRO"]   # match exacto
 PATRONES_BN        = ["BANDA NEGRA", "BANDANEGRA", "BN", "PHANTOM"]
 PATRONES_LOGO      = ["LOGO", "TRAZABILIDAD"]
 

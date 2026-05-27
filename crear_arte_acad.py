@@ -29,7 +29,7 @@ LAYER_K       = "k"
 LAYER_K3      = "k3"
 RADIO_MIN     = 15.0
 
-PAT_PERIM = ["PERIMETRO"]
+PAT_PERIM = ["=PERIMETRO"]   # match exacto — no coger "PERIMETRO OEM" etc.
 PAT_BN    = ["BANDA NEGRA", "BANDANEGRA", "BN", "PHANTOM", "BANDA"]
 PAT_LOGO  = ["LOGO", "TRAZABILIDAD"]
 
@@ -52,11 +52,26 @@ def pt(x, y, z=0.0):
         pythoncom.VT_ARRAY | pythoncom.VT_R8, [float(x), float(y), float(z)])
 
 
+def _layer_match(layer_nombre: str, patron: str) -> bool:
+    """
+    Si el patrón empieza con '=' → match exacto (ignorando mayúsculas).
+    Si no → el patrón debe estar contenido en el nombre del layer (substring).
+    Layers que contengan 'OEM' siempre se excluyen.
+    """
+    n = layer_nombre.upper().strip()
+    if "OEM" in n:
+        return False
+    p = patron.upper().strip()
+    if p.startswith("="):
+        return n == p[1:]
+    return p in n
+
+
 def ents_por_patron(msp, patrones):
     res = []
     for e in msp:
         try:
-            if any(p in e.Layer.upper() for p in patrones):
+            if any(_layer_match(e.Layer, p) for p in patrones):
                 res.append(e)
         except Exception:
             pass
