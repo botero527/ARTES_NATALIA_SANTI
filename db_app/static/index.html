@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AGP Glass DB</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      colors: {
+        agp: { 50:'#eff6ff', 500:'#3b82f6', 600:'#2563eb', 700:'#1d4ed8', 900:'#1e3a8a' },
+        dark: { 800:'#1e2235', 850:'#171b2d', 900:'#111422', 950:'#0b0d18' }
+      }
+    }
+  }
+}
+</script>
+<style>
+  body { background:#111422; color:#e2e8f0; font-family:'Segoe UI',system-ui,sans-serif; }
+  .card { background:#1e2235; border:1px solid #2e3a5e; border-radius:12px; }
+  .input-search { background:#171b2d; border:1px solid #2e3a5e; color:#e2e8f0; border-radius:8px; padding:10px 16px; width:100%; outline:none; transition:border .2s; }
+  .input-search:focus { border-color:#3b82f6; box-shadow:0 0 0 3px rgba(59,130,246,.15); }
+  .tab-btn { padding:8px 20px; border-radius:8px; cursor:pointer; transition:all .2s; color:#94a3b8; font-size:.875rem; font-weight:500; }
+  .tab-btn.active { background:#3b82f6; color:#fff; }
+  .tab-btn:hover:not(.active) { background:#2e3a5e; color:#e2e8f0; }
+  .badge { display:inline-block; padding:2px 8px; border-radius:20px; font-size:.7rem; font-weight:700; }
+  .badge-bn { background:#1e3a5e; color:#60a5fa; }
+  .badge-bni { background:#3b1f5e; color:#a78bfa; }
+  .badge-red { background:#4a1515; color:#f87171; }
+  .badge-ant { background:#1a3a1a; color:#4ade80; }
+  .badge-s { background:#1a3030; color:#2dd4bf; }
+  .row-hover { transition:background .15s; }
+  .row-hover:hover { background:rgba(59,130,246,.07); }
+  .stat-card { background:linear-gradient(135deg,#1e2235,#2a3150); border:1px solid #2e3a5e; border-radius:12px; padding:16px 20px; }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:#111422; }
+  ::-webkit-scrollbar-thumb { background:#2e3a5e; border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:#3b82f6; }
+  table { border-collapse:separate; border-spacing:0; width:100%; }
+  thead th { background:#171b2d; position:sticky; top:0; z-index:1; padding:10px 14px; text-align:left; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; border-bottom:1px solid #2e3a5e; }
+  tbody td { padding:10px 14px; border-bottom:1px solid #1a2040; font-size:.875rem; }
+  .empty-state { display:flex; flex-direction:column; align-items:center; justify-content:center; padding:60px 20px; color:#475569; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header style="background:#0b0d18;border-bottom:1px solid #1e2a4a;padding:0 24px;" class="flex items-center justify-between" style="height:56px;">
+  <div class="flex items-center gap-3" style="padding:14px 0;">
+    <div style="background:linear-gradient(135deg,#3b82f6,#6366f1);width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;">
+      <svg width="18" height="18" fill="white" viewBox="0 0 24 24"><path d="M3 3h18v4H3zm0 6h18v4H3zm0 6h18v4H3z"/></svg>
+    </div>
+    <div>
+      <div style="font-weight:700;font-size:1rem;color:#f1f5f9;">AGP Glass DB</div>
+      <div style="font-size:.7rem;color:#475569;">Base de datos de mallas y vitros</div>
+    </div>
+  </div>
+  <div id="status-dot" style="display:flex;align-items:center;gap:6px;font-size:.75rem;color:#4ade80;">
+    <span style="width:8px;height:8px;background:#4ade80;border-radius:50%;display:inline-block;"></span>
+    Conectado
+  </div>
+</header>
+
+<div style="max-width:1400px;margin:0 auto;padding:24px 20px;">
+
+  <!-- Stats -->
+  <div id="stats-row" style="display:grid;grid-template-columns:repeat(6,1fr);gap:12px;margin-bottom:28px;"></div>
+
+  <!-- Search & Tabs -->
+  <div class="card" style="padding:20px;margin-bottom:20px;">
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap;">
+      <div style="flex:1;min-width:280px;position:relative;">
+        <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input id="search-input" class="input-search" style="padding-left:38px;" placeholder="Buscar vehículo, código, malla..." autocomplete="off">
+      </div>
+      <div id="tabs" style="display:flex;gap:4px;background:#111422;padding:4px;border-radius:10px;">
+        <button class="tab-btn active" onclick="setTab('vitrojet')">Vitrojet</button>
+        <button class="tab-btn" onclick="setTab('grandes')">Mallas G</button>
+        <button class="tab-btn" onclick="setTab('pequenas')">Mallas P</button>
+        <button class="tab-btn" onclick="setTab('vinilos')">Vinilos</button>
+        <button class="tab-btn" onclick="setTab('pasta')">Pasta Plata</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Table Container -->
+  <div class="card" style="overflow:hidden;">
+    <div style="overflow:auto;max-height:62vh;" id="table-container">
+      <div class="empty-state"><p>Escribe para buscar o carga los primeros registros</p></div>
+    </div>
+    <div style="padding:10px 16px;border-top:1px solid #1e2a4a;display:flex;justify-content:space-between;align-items:center;">
+      <span id="result-count" style="font-size:.75rem;color:#64748b;"></span>
+      <span style="font-size:.75rem;color:#475569;">Mostrando máx. 100 resultados</span>
+    </div>
+  </div>
+
+</div>
+
+<script>
+let currentTab = 'vitrojet';
+let searchTimer = null;
+
+const ENDPOINTS = {
+  vitrojet: '/api/vitrojet',
+  grandes:  '/api/mallas-grandes',
+  pequenas: '/api/mallas-pequenas',
+  vinilos:  '/api/vinilos',
+  pasta:    '/api/pasta-plata'
+};
+
+const STAT_LABELS = {
+  mallas_grandes: {label:'Mallas G', icon:'🔷', color:'#3b82f6'},
+  mallas_pequenas:{label:'Mallas P', icon:'🔹', color:'#6366f1'},
+  vitrojet:       {label:'Vitrojet', icon:'🔬', color:'#0ea5e9'},
+  pasta_plata:    {label:'Pasta Plata',icon:'🪙',color:'#f59e0b'},
+  glassjet_viejo: {label:'Glassjet V.',icon:'📦',color:'#8b5cf6'},
+  vinilos:        {label:'Vinilos', icon:'🎨', color:'#ec4899'}
+};
+
+function badge(val) {
+  if (!val) return '';
+  const v = val.toString().toUpperCase().trim();
+  const cls = v==='BN'?'badge-bn':v==='BNI'?'badge-bni':v==='RED'?'badge-red':v==='ANT'?'badge-ant':'badge-s';
+  return `<span class="badge ${cls}">${val}</span>`;
+}
+
+function fmt(v) {
+  if (v===null||v===undefined) return '<span style="color:#334155">—</span>';
+  return `<span>${v}</span>`;
+}
+
+// ── Render tables ──────────────────────────────────────────────────────────────
+const RENDERS = {
+  vitrojet: {
+    headers: ['Vitro','Malla','Tipo','B/N','Vehículo','Versión','Info Malla'],
+    row: r => `<td style="font-weight:600;color:#60a5fa;">${r.vitro}</td>
+               <td style="color:#a78bfa;">${r.codigo_malla}</td>
+               <td><span style="font-size:.7rem;padding:2px 6px;background:#1a3a1a;color:#4ade80;border-radius:4px;">${r.tipo_malla==='G'?'Grande':'Pequeña'}</span></td>
+               <td>${badge(r.bnerig)}</td>
+               <td>${fmt(r.vehiculo)}</td>
+               <td>${fmt(r.version)}</td>
+               <td style="color:#64748b;font-size:.8rem;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${r.info_malla||'—'}</td>`
+  },
+  grandes: {
+    headers: ['Código','Cód.Veh.','Descripción','Pieza','Tipo','Versión'],
+    row: r => `<td style="font-weight:600;color:#a78bfa;">${r.codigo}</td>
+               <td style="color:#64748b;">${fmt(r.cod_veh)}</td>
+               <td>${fmt(r.descripcion)}</td>
+               <td>${fmt(r.pieza)}</td>
+               <td>${badge(r.tipo)}</td>
+               <td>${fmt(r.version)}</td>`
+  },
+  pequenas: {
+    headers: ['Código','Cód.Veh.','Descripción','Pieza','Tipo','Versión'],
+    row: r => `<td style="font-weight:600;color:#0ea5e9;">${r.codigo}</td>
+               <td style="color:#64748b;">${fmt(r.cod_veh)}</td>
+               <td>${fmt(r.descripcion)}</td>
+               <td>${fmt(r.pieza)}</td>
+               <td>${badge(r.tipo)}</td>
+               <td>${fmt(r.version)}</td>`
+  },
+  vinilos: {
+    headers: ['Herramental','Vehículo','Cód.Veh.','Versión','Pieza','Tipo'],
+    row: r => `<td style="font-weight:600;color:#ec4899;">${r.herramental}</td>
+               <td>${fmt(r.vehiculo)}</td>
+               <td>${fmt(r.cod_vehiculo)}</td>
+               <td>${fmt(r.version)}</td>
+               <td>${fmt(r.pieza)}</td>
+               <td>${badge(r.tipo)}</td>`
+  },
+  pasta: {
+    headers: ['Consecutivo','Tipo','Vehículo','Cód.Veh.','Versión','Pieza','Caso'],
+    row: r => `<td style="font-weight:600;color:#f59e0b;">${r.consecutivo}</td>
+               <td>${badge(r.tipo)}</td>
+               <td>${fmt(r.vehiculo)}</td>
+               <td>${fmt(r.cod_vehiculo)}</td>
+               <td>${fmt(r.version)}</td>
+               <td>${fmt(r.pieza)}</td>
+               <td style="color:#64748b;">${fmt(r.caso)}</td>`
+  }
+};
+
+function renderTable(data) {
+  const cfg = RENDERS[currentTab];
+  if (!data.length) {
+    document.getElementById('table-container').innerHTML = `
+      <div class="empty-state">
+        <svg width="48" height="48" fill="none" stroke="#334155" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <p style="margin-top:12px;">Sin resultados</p>
+      </div>`;
+    document.getElementById('result-count').textContent = '0 resultados';
+    return;
+  }
+  const rows = data.map(r => `<tr class="row-hover">${cfg.row(r)}</tr>`).join('');
+  const heads = cfg.headers.map(h => `<th>${h}</th>`).join('');
+  document.getElementById('table-container').innerHTML = `
+    <table><thead><tr>${heads}</tr></thead><tbody>${rows}</tbody></table>`;
+  document.getElementById('result-count').textContent = `${data.length} resultado${data.length!==1?'s':''}`;
+}
+
+async function search() {
+  const q = document.getElementById('search-input').value.trim();
+  const url = `${ENDPOINTS[currentTab]}?q=${encodeURIComponent(q)}&limit=100`;
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    renderTable(data);
+  } catch(e) {
+    document.getElementById('table-container').innerHTML = `<div class="empty-state" style="color:#f87171;">Error de conexión</div>`;
+  }
+}
+
+function setTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab-btn').forEach((b,i) => {
+    const tabs = ['vitrojet','grandes','pequenas','vinilos','pasta'];
+    b.classList.toggle('active', tabs[i]===tab);
+  });
+  search();
+}
+
+document.getElementById('search-input').addEventListener('input', () => {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(search, 300);
+});
+
+// Load stats
+async function loadStats() {
+  try {
+    const data = await (await fetch('/api/stats')).json();
+    const row = document.getElementById('stats-row');
+    row.innerHTML = Object.entries(STAT_LABELS).map(([k,cfg]) => `
+      <div class="stat-card">
+        <div style="font-size:1.4rem;margin-bottom:4px;">${cfg.icon}</div>
+        <div style="font-size:1.4rem;font-weight:700;color:${cfg.color};">${(data[k]||0).toLocaleString('es')}</div>
+        <div style="font-size:.72rem;color:#64748b;margin-top:2px;">${cfg.label}</div>
+      </div>`).join('');
+  } catch(e) {}
+}
+
+// Init
+loadStats();
+search();
+</script>
+</body>
+</html>

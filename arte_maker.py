@@ -815,7 +815,7 @@ class ArteMakerApp(tk.Tk):
 
         tk.Label(left_hdr, text="AGP", font=("Segoe UI", 9, "bold"),
                  bg=C["bg2"], fg=C["txt_mid"]).pack(side="left", padx=8)
-        tk.Label(left_hdr, text="ARTE MAKER",
+        tk.Label(left_hdr, text="ARTE MAKIA",
                  font=("Segoe UI", 22, "bold"),
                  bg=C["bg2"], fg=C["accent"]).pack(side="left")
 
@@ -1191,7 +1191,6 @@ class ArteMakerApp(tk.Tk):
             self._busy(False)
 
     # ── TODO EN UNO ───────────────────────────────────────────────────────────
-
     def _todo_en_uno(self):
         if not self._validar(necesita_dwg=True):
             return
