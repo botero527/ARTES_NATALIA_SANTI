@@ -49,7 +49,7 @@ def buscar_grandes(q: str = Query(""), limit: int = 50):
     data = rows_to_dicts(cur); conn.close()
     return data
 
-# ── Mallas Pequeñas ────────────────────────────────────────────────────────────
+#   ── Mallas Pequeñas ────────────────────────────────────────────────────────────
 @app.get("/api/mallas-pequenas")
 def buscar_pequenas(q: str = Query(""), limit: int = 50):
     conn = get_conn(); cur = conn.cursor()
