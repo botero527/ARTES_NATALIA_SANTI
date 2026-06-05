@@ -246,36 +246,54 @@ async function loadStats() {
 }
 
 // Sincronizar Excel
+let _syncPoll = null;
+
 async function sincronizar() {
   const btn = document.getElementById('btn-sync');
   const icon = document.getElementById('sync-icon');
+
+  // Mostrar estado del Excel primero
+  const status = await (await fetch('/api/excel-status')).json();
+  if (!status.existe) {
+    alert('Excel no encontrado en la ruta sincronizada de OneDrive.\n' + status.ruta);
+    return;
+  }
+  if (!confirm(`Sincronizar desde Excel?\n\nÚltima modificación: ${status.modificado}\n\nEsto puede tardar 10-15 minutos. La página seguirá funcionando mientras.`)) return;
+
   btn.disabled = true;
   btn.style.opacity = '0.6';
   icon.style.display = 'inline-block';
   icon.style.animation = 'spin 1s linear infinite';
-  try {
-    // Mostrar estado del Excel primero
-    const status = await (await fetch('/api/excel-status')).json();
-    if (!status.existe) {
-      alert('Excel no encontrado en la ruta sincronizada de OneDrive.\n' + status.ruta);
-      return;
-    }
-    if (!confirm(`Sincronizar desde Excel?\n\nÚltima modificación: ${status.modificado}\n\nEsto puede tardar 3-5 minutos.`)) return;
+  btn.querySelector ? null : null;
 
+  try {
     const res = await fetch('/api/sync', {method:'POST'});
     const data = await res.json();
-    if (data.ok) {
-      await loadStats();
-      alert('✅ Sincronización completada correctamente.');
-    } else {
-      alert('⚠️ Sincronización con errores:\n' + data.log.slice(-5).join('\n'));
+    if (!data.started) {
+      alert(data.msg || 'No se pudo iniciar');
+      return;
     }
+    // Polling cada 4s
+    _syncPoll = setInterval(async () => {
+      try {
+        const s = await (await fetch('/api/sync-status')).json();
+        const last = s.log.slice(-1)[0] || '';
+        icon.title = last;
+        if (!s.running) {
+          clearInterval(_syncPoll); _syncPoll = null;
+          btn.disabled = false; btn.style.opacity = '1'; icon.style.animation = '';
+          await loadStats();
+          if (s.ok) {
+            alert('✅ Sincronización completada.\n\n' + s.log.slice(-5).join('\n'));
+          } else {
+            alert('⚠️ Sincronización con errores:\n\n' + s.log.slice(-8).join('\n'));
+          }
+        }
+      } catch(e) {}
+    }, 4000);
   } catch(e) {
     alert('Error: ' + e.message);
-  } finally {
-    btn.disabled = false;
-    btn.style.opacity = '1';
-    icon.style.animation = '';
+    btn.disabled = false; btn.style.opacity = '1'; icon.style.animation = '';
   }
 }
 

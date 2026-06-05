@@ -126,24 +126,49 @@ def buscar_pasta(q: str = Query(""), limit: int = 50):
 # ── Sincronizar desde Excel SharePoint ────────────────────────────────────────
 EXCEL_PATH = r"C:\Users\abotero\OneDrive - AGP GROUP\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
 
+import subprocess, sys, threading
+_sync_state = {"running": False, "log": [], "ok": None}
+
+def _run_sync():
+    global _sync_state
+    script = pathlib.Path(__file__).parent / "importar_excel.py"
+    env = os.environ.copy()
+    env["PYTHONUTF8"] = "1"
+    _sync_state = {"running": True, "log": ["Iniciando importación..."], "ok": None}
+    try:
+        proc = subprocess.Popen(
+            [sys.executable, "-X", "utf8", str(script)],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL,
+            text=True, encoding="utf-8", errors="replace", env=env
+        )
+        for line in proc.stdout:
+            _sync_state["log"].append(line.rstrip())
+        proc.wait()
+        _sync_state["ok"] = proc.returncode == 0
+    except Exception as e:
+        _sync_state["log"].append(f"ERROR: {e}")
+        _sync_state["ok"] = False
+    finally:
+        _sync_state["running"] = False
+
 @app.post("/api/sync")
 def sync_excel():
-    """Re-importa el Excel (sincronizado via OneDrive) a la BD."""
-    import subprocess, sys
-    script = pathlib.Path(__file__).parent / "importar_excel.py"
+    if _sync_state["running"]:
+        return {"started": False, "msg": "Ya hay una sincronización en curso"}
     if not pathlib.Path(EXCEL_PATH).exists():
         raise HTTPException(404, f"Excel no encontrado: {EXCEL_PATH}")
-    try:
-        result = subprocess.run(
-            [sys.executable, str(script)],
-            capture_output=True, text=True, timeout=600
-        )
-        lines = (result.stdout + result.stderr).strip().split("\n")
-        return {"ok": result.returncode == 0, "log": lines[-20:]}
-    except subprocess.TimeoutExpired:
-        raise HTTPException(504, "Timeout — el Excel es muy grande, espera más")
-    except Exception as e:
-        raise HTTPException(500, str(e))
+    t = threading.Thread(target=_run_sync, daemon=True)
+    t.start()
+    return {"started": True}
+
+@app.get("/api/sync-status")
+def sync_status():
+    return {
+        "running": _sync_state["running"],
+        "ok": _sync_state["ok"],
+        "log": _sync_state["log"][-30:]
+    }
 
 @app.get("/api/excel-status")
 def excel_status():
