@@ -8,8 +8,8 @@ import os, sys, time, datetime
 import pyodbc
 import openpyxl
 
-EXCEL = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                     "LISTADO DE MALLAS Y GLASSJET 2025.xlsx")
+# Ruta sincronizada desde SharePoint via OneDrive — siempre actualizada
+EXCEL = r"C:\Users\abotero\OneDrive - AGP GROUP\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
 
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"

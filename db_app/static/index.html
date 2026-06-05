@@ -38,6 +38,7 @@ tailwind.config = {
   ::-webkit-scrollbar-track { background:#111422; }
   ::-webkit-scrollbar-thumb { background:#2e3a5e; border-radius:3px; }
   ::-webkit-scrollbar-thumb:hover { background:#3b82f6; }
+  @keyframes spin { to { transform:rotate(360deg); } }
   table { border-collapse:separate; border-spacing:0; width:100%; }
   thead th { background:#171b2d; position:sticky; top:0; z-index:1; padding:10px 14px; text-align:left; font-size:.75rem; text-transform:uppercase; letter-spacing:.05em; color:#64748b; border-bottom:1px solid #2e3a5e; }
   tbody td { padding:10px 14px; border-bottom:1px solid #1a2040; font-size:.875rem; }
@@ -75,6 +76,10 @@ tailwind.config = {
         <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:#475569;" width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
         <input id="search-input" class="input-search" style="padding-left:38px;" placeholder="Buscar vehículo, código, malla..." autocomplete="off">
       </div>
+      <button onclick="sincronizar()" id="btn-sync"
+        style="background:#0f3a0f;border:1px solid #22c55e;color:#22c55e;padding:8px 16px;border-radius:8px;cursor:pointer;font-size:.8rem;font-weight:600;display:flex;align-items:center;gap:6px;white-space:nowrap;">
+        <span id="sync-icon">⟳</span> Sincronizar Excel
+      </button>
       <div id="tabs" style="display:flex;gap:4px;background:#111422;padding:4px;border-radius:10px;">
         <button class="tab-btn active" onclick="setTab('vitrojet')">Vitrojet</button>
         <button class="tab-btn" onclick="setTab('grandes')">Mallas G</button>
@@ -238,6 +243,40 @@ async function loadStats() {
         <div style="font-size:.72rem;color:#64748b;margin-top:2px;">${cfg.label}</div>
       </div>`).join('');
   } catch(e) {}
+}
+
+// Sincronizar Excel
+async function sincronizar() {
+  const btn = document.getElementById('btn-sync');
+  const icon = document.getElementById('sync-icon');
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  icon.style.display = 'inline-block';
+  icon.style.animation = 'spin 1s linear infinite';
+  try {
+    // Mostrar estado del Excel primero
+    const status = await (await fetch('/api/excel-status')).json();
+    if (!status.existe) {
+      alert('Excel no encontrado en la ruta sincronizada de OneDrive.\n' + status.ruta);
+      return;
+    }
+    if (!confirm(`Sincronizar desde Excel?\n\nÚltima modificación: ${status.modificado}\n\nEsto puede tardar 3-5 minutos.`)) return;
+
+    const res = await fetch('/api/sync', {method:'POST'});
+    const data = await res.json();
+    if (data.ok) {
+      await loadStats();
+      alert('✅ Sincronización completada correctamente.');
+    } else {
+      alert('⚠️ Sincronización con errores:\n' + data.log.slice(-5).join('\n'));
+    }
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.style.opacity = '1';
+    icon.style.animation = '';
+  }
 }
 
 // Init

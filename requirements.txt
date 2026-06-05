@@ -1,2 +1,5 @@
 pywin32
+fastapi
+uvicorn[standard]
+pyodbc
 openpyxl

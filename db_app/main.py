@@ -123,6 +123,38 @@ def buscar_pasta(q: str = Query(""), limit: int = 50):
     data = rows_to_dicts(cur); conn.close()
     return data
 
+# ── Sincronizar desde Excel SharePoint ────────────────────────────────────────
+EXCEL_PATH = r"C:\Users\abotero\OneDrive - AGP GROUP\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
+
+@app.post("/api/sync")
+def sync_excel():
+    """Re-importa el Excel (sincronizado via OneDrive) a la BD."""
+    import subprocess, sys
+    script = pathlib.Path(__file__).parent / "importar_excel.py"
+    if not pathlib.Path(EXCEL_PATH).exists():
+        raise HTTPException(404, f"Excel no encontrado: {EXCEL_PATH}")
+    try:
+        result = subprocess.run(
+            [sys.executable, str(script)],
+            capture_output=True, text=True, timeout=600
+        )
+        lines = (result.stdout + result.stderr).strip().split("\n")
+        return {"ok": result.returncode == 0, "log": lines[-20:]}
+    except subprocess.TimeoutExpired:
+        raise HTTPException(504, "Timeout — el Excel es muy grande, espera más")
+    except Exception as e:
+        raise HTTPException(500, str(e))
+
+@app.get("/api/excel-status")
+def excel_status():
+    p = pathlib.Path(EXCEL_PATH)
+    if not p.exists():
+        return {"existe": False, "ruta": EXCEL_PATH}
+    import datetime
+    mtime = datetime.datetime.fromtimestamp(p.stat().st_mtime)
+    return {"existe": True, "ruta": EXCEL_PATH,
+            "modificado": mtime.strftime("%d/%m/%Y %H:%M")}
+
 # ── HTML Principal ─────────────────────────────────────────────────────────────
 @app.get("/", response_class=HTMLResponse)
 def index():
