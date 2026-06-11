@@ -1,100 +1,245 @@
 # -*- coding: utf-8 -*-
 """
-Importador Excel → SQL Server (Vitros_Mallas)
-Ejecutar una sola vez para migrar todos los datos históricos.
-Re-ejecutable: IF NOT EXISTS evita duplicados (excepto glassjet_viejo que se limpia antes).
+Sincronizador Excel → Azure SQL (mallas.*)
+Estrategia: DELETE tabla + bulk INSERT con fast_executemany en lotes de 500.
+Cada tabla abre y cierra su propia conexión — si Azure corta, reconecta solo.
+El Excel es la fuente de verdad.
 """
+
 import os, sys, time, datetime
 import pyodbc
 import openpyxl
 
-# Ruta sincronizada desde SharePoint via OneDrive — siempre actualizada
-EXCEL = r"C:\Users\abotero\OneDrive - AGP GROUP\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
+EXCEL = (
+    r"C:\Users\abotero\OneDrive - AGP GROUP"
+    r"\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020"
+    r"\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
+)
 
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=.\\SQLEXPRESS;"
-    "DATABASE=Vitros_Mallas;"
-    "Trusted_Connection=yes;"
+    "SERVER=agpcolombia.database.windows.net,1433;"
+    "DATABASE=AGP_Ingenieria;"
+    "UID=DevIngenieria;"
+    "PWD=HiJE068i0LQVrwA;"
+    "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
 )
 
-BATCH = 500
+MAX_VACIAS  = 200
+CHUNK       = 150   # filas por lote en VALUES batch (límite 2100 params SQL Server)
 
-def ts():
-    return datetime.datetime.now().strftime("%H:%M:%S")
+# ─────────────────────────────────────────────────────────────────────────────
+_log_fn = None
 
-def log(msg):
-    print(f"[{ts()}] {msg}")
+def log(msg, tag=""):
+    if _log_fn:
+        _log_fn(msg, tag)
+    else:
+        print(f"[{datetime.datetime.now():%H:%M:%S}] {msg}", flush=True)
 
-def clean(v):
+def clean(v, maxlen=None):
     if v is None:
         return None
     s = str(v).strip()
-    return s if s else None
+    if not s:
+        return None
+    return s[:maxlen] if maxlen and len(s) > maxlen else s
 
 def conectar():
-    for driver in ["ODBC Driver 17 for SQL Server", "ODBC Driver 18 for SQL Server",
-                   "SQL Server"]:
+    for drv in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
         try:
-            cs = CONN_STR.replace("ODBC Driver 17 for SQL Server", driver)
-            return pyodbc.connect(cs, timeout=10)
+            cs = CONN_STR.replace("ODBC Driver 17 for SQL Server", drv)
+            c = pyodbc.connect(cs, timeout=30)
+            c.autocommit = False
+            return c
         except Exception:
             continue
-    log("ERROR: no se pudo conectar. Instala ODBC Driver 17/18 for SQL Server.")
-    sys.exit(1)
+    raise RuntimeError("No se pudo conectar — instala ODBC Driver 17/18.")
 
-def ejecutar_batch(cursor, sql, filas):
-    """Bulk insert con fallback fila-a-fila si hay errores de truncación."""
-    if not filas:
-        return 0, 0
-    ok = err = 0
-    cursor.fast_executemany = False
-    try:
-        cursor.executemany(sql, filas)
-        ok = len(filas)
-    except Exception:
-        for fila in filas:
-            try:
-                cursor.execute(sql, fila)
-                ok += 1
-            except Exception:
-                err += 1
-    return ok, err
+def _hoja(wb, *candidatos):
+    nombres = {k.upper().strip(): k for k in wb.sheetnames}
+    for c in candidatos:
+        if c in wb.sheetnames:
+            return wb[c]
+        if c.upper().strip() in nombres:
+            return wb[nombres[c.upper().strip()]]
+    raise KeyError(f"No se encontró ninguna de: {candidatos}")
 
-def _importar(nombre, ws, cursor, sql, build_row_fn):
-    log(f"Importando {nombre}...")
-    filas = []; ok = err = 0
+# ─────────────────────────────────────────────────────────────────────────────
+#  Motor principal
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
+    """
+    Lee la hoja, deduplica por pk_index, limpia la tabla y hace bulk INSERT
+    en lotes de CHUNK. Reconecta automáticamente si Azure corta la conexión.
+    pk_index=None → sin dedup (glassjet_viejo).
+    """
+    log(f"Leyendo {nombre} del Excel...")
+    t0 = time.time()
+    visto  = {}   # pk → tupla
+    sin_pk = []
+    vacias = 0
+
     for row in ws.iter_rows(min_row=2, values_only=True):
-        fila = build_row_fn(row)
-        if fila is None:
+        params = build_row_fn(row)
+        if params is None:
+            vacias += 1
+            if vacias >= MAX_VACIAS:
+                break
             continue
-        filas.append(fila)
-        if len(filas) >= BATCH:
-            b_ok, b_err = ejecutar_batch(cursor, sql, filas)
-            ok += b_ok; err += b_err; filas = []
-    if filas:
-        b_ok, b_err = ejecutar_batch(cursor, sql, filas)
-        ok += b_ok; err += b_err
-    log(f"  {nombre}: {ok} insertados, {err} errores")
+        vacias = 0
+        if pk_index is None:
+            sin_pk.append(params)
+        else:
+            visto[params[pk_index]] = params
+
+    filas = list(visto.values()) if pk_index is not None else sin_pk
+    dups  = sum(1 for _ in visto) - len(filas) if pk_index is not None else 0
+
+    msg = f"  {nombre}: {len(filas)} filas leídas ({time.time()-t0:.1f}s)"
+    if dups > 0:
+        msg += f"  [{dups} duplicados en Excel ignorados]"
+    log(msg)
+
+    if not filas:
+        log(f"  {nombre}: sin datos — omitido", "warn")
+        return 0, 0
+
+    # Extraer la parte VALUES (?,?,...) del sql_insert para construir multi-row
+    # sql_insert tiene forma: "INSERT INTO tabla (c1,c2,...) VALUES (?,?,...,'literal')"
+    # Necesitamos contar cuántos ? hay por fila
+    n_params = sql_insert.count("?")
+
+    def _multi_insert(cur, lote):
+        """Un único INSERT con múltiples VALUE sets — rápido y sin bug de fast_executemany."""
+        # Extraer la parte "INSERT INTO tabla (cols)" y la parte "VALUES (?,?,...)"
+        val_start = sql_insert.upper().rfind("VALUES")
+        prefix    = sql_insert[:val_start].rstrip()   # "INSERT INTO tabla (cols)"
+        val_tpl   = sql_insert[val_start + 6:].strip()  # "(?,?,...,'literal')"
+
+        # Para cada fila en el lote, la parte VALUES tiene que expandir los ?
+        # Construimos: VALUES (row1),(row2),...
+        rows_sql  = ",".join([val_tpl] * len(lote))
+        sql_multi = f"{prefix} VALUES {rows_sql}"
+
+        # Aplanar params: solo los ? (sin literales hardcodeados)
+        params = []
+        for f in lote:
+            params.extend(f)
+        cur.execute(sql_multi, params)
+
+    n_lotes = -(-len(filas) // CHUNK)
+    ok = err = 0
+    cn = conectar()
+    try:
+        cn.cursor().execute(sql_delete)
+        cn.commit()
+
+        for i in range(0, len(filas), CHUNK):
+            lote = filas[i:i + CHUNK]
+            n    = i // CHUNK + 1
+            cur  = cn.cursor()
+            try:
+                _multi_insert(cur, lote)
+                cn.commit()
+                ok += len(lote)
+                log(f"  {nombre}: {n}/{n_lotes} — {ok:,} insertados", "dim")
+            except pyodbc.OperationalError:
+                log(f"  {nombre}: reconectando (lote {n})...", "warn")
+                try: cn.close()
+                except Exception: pass
+                cn  = conectar()
+                cur = cn.cursor()
+                for f in lote:
+                    try:
+                        cur.execute(sql_insert, f)
+                        ok += 1
+                    except Exception as e:
+                        err += 1
+                        if err <= 3:
+                            log(f"    error: {str(e)[:70]}", "warn")
+                cn.commit()
+            except Exception as e:
+                try: cn.rollback()
+                except Exception: pass
+                log(f"  {nombre}: lote {n} fila a fila ({str(e)[:50]})...", "warn")
+                cur2 = cn.cursor()
+                for f in lote:
+                    try:
+                        cur2.execute(sql_insert, f)
+                        ok += 1
+                    except Exception as e2:
+                        err += 1
+                        if err <= 3:
+                            log(f"    error: {str(e2)[:70]}", "warn")
+                cn.commit()
+    finally:
+        try: cn.close()
+        except Exception: pass
+
+    log(f"  {nombre}: {ok:,} insertados  |  {err} errores",
+        "ok" if err == 0 else "warn")
     return ok, err
 
-# ── Importadores ──────────────────────────────────────────────────────────────
+# ─────────────────────────────────────────────────────────────────────────────
+#  Funciones por tabla
+# ─────────────────────────────────────────────────────────────────────────────
 
-def importar_grandes(ws, cursor):
-    sql = """IF NOT EXISTS (SELECT 1 FROM mallas_grandes WHERE codigo=?)
-             INSERT INTO mallas_grandes (codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,cambio)
-             VALUES (?,?,?,?,?,?,?,'importado_excel')"""
-    def row(r):
-        c = clean(r[0])
-        return None if not c else (c, c, clean(r[1]), clean(r[2]),
-               clean(r[3]), clean(r[4]), clean(r[5]), clean(r[6]))
-    return _importar("MALLAS GRANDES", ws, cursor, sql, row)
+def importar_vitrojet(ws):
+    sql_i = (
+        "INSERT INTO mallas.vitrojet "
+        "(vitro,codigo_malla,tipo_malla,cod_completo,bnerig,vehiculo,version,ruta,cambio) "
+        "VALUES (?,?,?,?,?,?,?,?,'excel')"
+    )
+    def build(r):
+        vitro = clean(r[0], 30)
+        malla = clean(r[1], 30)
+        if not vitro or not malla:
+            return None
+        tipo = "G" if str(malla).upper().startswith("A-") else "P"
+        return (
+            vitro, malla, tipo,
+            clean(r[2], 100),
+            clean(r[3], 20),
+            clean(r[4], 200),
+            clean(r[5], 100) if len(r) > 5 else None,
+            clean(r[6], 500) if len(r) > 6 else None,
+        )
+    return _bulk_sync("VITROJET", ws,
+                      "DELETE FROM mallas.vitrojet", sql_i, build)
 
-def importar_pequenas(ws, cursor):
-    sql = """IF NOT EXISTS (SELECT 1 FROM mallas_pequenas WHERE codigo=?)
-             INSERT INTO mallas_pequenas (codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,part_number,cambio)
-             VALUES (?,?,?,?,?,?,?,?,'importado_excel')"""
-    def row(r):
+
+def importar_grandes(ws):
+    sql_i = (
+        "INSERT INTO mallas.grandes "
+        "(codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,cambio) "
+        "VALUES (?,?,?,?,?,?,?,'excel')"
+    )
+    def build(r):
+        c = clean(r[0], 30)
+        if not c:
+            return None
+        return (
+            c,
+            clean(r[1], 30),
+            clean(r[2], 200),
+            clean(r[3], 100),
+            clean(r[4], 20),
+            clean(r[5], 100),
+            clean(r[6], 300) if len(r) > 6 else None,
+        )
+    return _bulk_sync("MALLAS GRANDES", ws,
+                      "DELETE FROM mallas.grandes", sql_i, build)
+
+
+def importar_pequenas(ws):
+    sql_i = (
+        "INSERT INTO mallas.pequenas "
+        "(codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,part_number,cambio) "
+        "VALUES (?,?,?,?,?,?,?,?,'excel')"
+    )
+    def build(r):
         raw = clean(r[0])
         if not raw:
             return None
@@ -102,108 +247,155 @@ def importar_pequenas(ws, cursor):
             codigo = int(float(raw))
         except Exception:
             return None
-        pn = clean(r[7]) if len(r) > 7 else None
-        return (codigo, codigo, clean(r[1]), clean(r[2]),
-                clean(r[3]), clean(r[4]), clean(r[5]), clean(r[6]), pn)
-    return _importar("MALLAS PEQUEÑAS", ws, cursor, sql, row)
-
-def importar_vitrojet(ws, cursor):
-    sql = """IF NOT EXISTS (SELECT 1 FROM vitrojet WHERE vitro=?)
-             INSERT INTO vitrojet (vitro,codigo_malla,tipo_malla,cod_completo,bnerig,vehiculo,version,cambio)
-             VALUES (?,?,?,?,?,?,?,'importado_excel')"""
-    def row(r):
-        vitro = clean(r[0])
-        malla = clean(r[1])
-        if not vitro or not malla:
+        # Requiere descripción para filtrar ghost rows con solo número en col A
+        desc = clean(r[2], 200) if len(r) > 2 else None
+        if not desc:
             return None
-        tipo = 'G' if str(malla).startswith('A-') else 'P'
-        ver  = clean(r[5]) if len(r) > 5 else None
-        return (vitro, vitro, str(malla), tipo, clean(r[2]), clean(r[3]), clean(r[4]), ver)
-    return _importar("VITROJET", ws, cursor, sql, row)
+        return (
+            codigo,
+            clean(r[1], 30),
+            desc,
+            clean(r[3], 100) if len(r) > 3 else None,
+            clean(r[4], 20)  if len(r) > 4 else None,
+            clean(r[5], 100) if len(r) > 5 else None,
+            clean(r[6], 300) if len(r) > 6 else None,
+            clean(r[7], 100) if len(r) > 7 else None,
+        )
+    return _bulk_sync("MALLAS PEQUEÑAS", ws,
+                      "DELETE FROM mallas.pequenas", sql_i, build)
 
-def importar_pasta_plata(ws, cursor):
-    sql = """IF NOT EXISTS (SELECT 1 FROM pasta_plata WHERE consecutivo=?)
-             INSERT INTO pasta_plata (consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,ruta_archivo,caso,cambio)
-             VALUES (?,?,?,?,?,?,?,?,'importado_excel')"""
-    def row(r):
-        c = clean(r[0])
+
+def importar_pasta_plata(ws):
+    sql_i = (
+        "INSERT INTO mallas.pasta_plata "
+        "(consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,ruta_archivo,caso,cambio) "
+        "VALUES (?,?,?,?,?,?,?,?,'excel')"
+    )
+    def build(r):
+        c = clean(r[0], 30)
         if not c:
             return None
-        caso = clean(r[7]) if len(r) > 7 else None
-        return (c, c, clean(r[1]), clean(r[2]),
-                clean(str(r[3]) if r[3] else None),
-                clean(r[4]), clean(str(r[5]) if r[5] else None),
-                clean(r[6]), caso)
-    return _importar("PASTA DE PLATA", ws, cursor, sql, row)
+        return (
+            c,
+            clean(r[1], 20),
+            clean(r[2], 200),
+            clean(str(r[3]), 30)  if r[3] is not None else None,
+            clean(str(r[4]), 100) if r[4] is not None else None,
+            clean(str(r[5]), 100) if r[5] is not None else None,
+            clean(r[6], 500)      if len(r) > 6 else None,
+            clean(r[7], 200)      if len(r) > 7 else None,
+        )
+    return _bulk_sync("PASTA DE PLATA", ws,
+                      "DELETE FROM mallas.pasta_plata", sql_i, build)
 
-def importar_glassjet_viejo(ws, cursor):
-    # Tabla histórica sin PK propia — limpiar antes de importar para evitar duplicados
-    cursor.execute("DELETE FROM glassjet_viejo")
-    log("  glassjet_viejo limpiada (re-importación limpia)")
-    sql = """INSERT INTO glassjet_viejo (malla,glassjet,part_number,tipo,vehiculo,homologacion_vitro)
-             VALUES (?,?,?,?,?,?)"""
-    def row(r):
-        if not any(v is not None for v in r[:6]):
-            return None
-        return (clean(str(r[0])) if r[0] else None,
-                clean(str(r[1])) if r[1] else None,
-                clean(r[2]), clean(r[3]), clean(r[4]), clean(r[5]))
-    return _importar("GLASSJET VIEJO", ws, cursor, sql, row)
 
-def importar_vinilos(ws, cursor):
-    sql = """IF NOT EXISTS (SELECT 1 FROM vinilos WHERE herramental=?)
-             INSERT INTO vinilos (herramental,vehiculo,cod_vehiculo,version,pieza,tipo,cambio)
-             VALUES (?,?,?,?,?,?,'importado_excel')"""
-    def row(r):
-        h = clean(r[0])
+def importar_vinilos(ws):
+    sql_i = (
+        "INSERT INTO mallas.vinilos "
+        "(herramental,vehiculo,cod_vehiculo,version,pieza,tipo,cambio) "
+        "VALUES (?,?,?,?,?,?,'excel')"
+    )
+    def build(r):
+        h = clean(r[0], 30)
         if not h:
             return None
-        tipo = clean(r[5])
-        if tipo == 'BN2':
-            tipo = 'BN'
-        return (h, h, clean(r[1]),
-                clean(str(r[2]) if r[2] else None),
-                clean(str(r[3]) if r[3] else None),
-                clean(str(r[4]) if r[4] else None), tipo)
-    return _importar("VINILOS", ws, cursor, sql, row)
+        tipo = clean(r[5], 20) if len(r) > 5 else None
+        if tipo == "BN2":
+            tipo = "BN"
+        return (
+            h,
+            clean(r[1], 200),
+            clean(str(r[2]), 30)  if r[2] is not None else None,
+            clean(str(r[3]), 100) if r[3] is not None else None,
+            clean(str(r[4]), 100) if r[4] is not None else None,
+            tipo,
+        )
+    return _bulk_sync("VINILOS", ws,
+                      "DELETE FROM mallas.vinilos", sql_i, build)
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
 
-def main():
-    log("=== IMPORTADOR AGP Excel → SQL Server ===")
+def importar_glassjet_viejo(ws):
+    sql_i = (
+        "INSERT INTO mallas.glassjet_viejo "
+        "(malla,glassjet,part_number,tipo,vehiculo,homologacion_vitro) "
+        "VALUES (?,?,?,?,?,?)"
+    )
+    def build(r):
+        if not any(v is not None for v in r[:6]):
+            return None
+        return (
+            clean(str(r[0]), 50) if r[0] is not None else None,
+            clean(str(r[1]), 50) if r[1] is not None else None,
+            clean(r[2], 100),
+            clean(r[3], 20),
+            clean(r[4], 200),
+            clean(r[5], 50),
+        )
+    return _bulk_sync("GLASSJET VIEJO", ws,
+                      "DELETE FROM mallas.glassjet_viejo", sql_i, build,
+                      pk_index=None)
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  MAIN
+# ─────────────────────────────────────────────────────────────────────────────
+
+def main(log_fn=None):
+    global _log_fn
+    _log_fn = log_fn
+
+    log("=== SINCRONIZADOR AGP Excel -> Azure SQL ===")
+
     if not os.path.isfile(EXCEL):
-        log(f"ERROR: no se encontró {EXCEL}"); sys.exit(1)
+        log(f"ERROR: Excel no encontrado:\n  {EXCEL}", "err")
+        return False
 
     log("Abriendo Excel...")
     t0 = time.time()
-    wb = openpyxl.load_workbook(EXCEL, read_only=True, data_only=True)
+    try:
+        wb = openpyxl.load_workbook(EXCEL, read_only=True, data_only=True)
+    except Exception as e:
+        log(f"ERROR al abrir Excel: {e}", "err")
+        return False
     log(f"Excel cargado en {time.time()-t0:.1f}s")
 
-    log("Conectando a SQL Server...")
-    conn = conectar()
-    conn.autocommit = False
-    cur = conn.cursor()
-    log("Conexión OK")
-
+    log("Verificando conexión Azure SQL...")
     try:
-        importar_grandes(wb['GRANDES'], cur);          conn.commit()
-        importar_pequenas(wb['PEQUEÑAS'], cur);        conn.commit()
-        importar_vitrojet(wb['VITROJET'], cur);        conn.commit()
-        importar_pasta_plata(wb['PASTA DE PLATA'], cur); conn.commit()
-        importar_glassjet_viejo(wb['GLASSJET VIEJO NO ALIMENTAR INV'], cur); conn.commit()
-        importar_vinilos(wb['VINILOS'], cur);          conn.commit()
-
-        log(f"\n=== Completado en {time.time()-t0:.0f}s ===")
-        for t in ['mallas_grandes','mallas_pequenas','vitrojet',
-                  'pasta_plata','glassjet_viejo','vinilos']:
-            cur.execute(f"SELECT COUNT(*) FROM {t}")
-            log(f"  {t}: {cur.fetchone()[0]:,} registros")
+        _t = conectar(); _t.close()
     except Exception as e:
-        conn.rollback()
-        log(f"ERROR FATAL: {e}")
+        log(str(e), "err")
+        return False
+    log("Conexión OK\n")
+
+    errores_total = 0
+    try:
+        _, e = importar_vitrojet(   _hoja(wb, "VITROJET"));               errores_total += e
+        _, e = importar_grandes(    _hoja(wb, "GRANDES"));                 errores_total += e
+        _, e = importar_pequenas(   _hoja(wb, "PEQUEÑAS", "PEQUENAS"));    errores_total += e
+        _, e = importar_pasta_plata(_hoja(wb, "PASTA DE PLATA"));          errores_total += e
+        _, e = importar_glassjet_viejo(
+            _hoja(wb, "GLASSJET VIEJO NO ALIMENTAR INV", "GLASSJET VIEJO")); errores_total += e
+        _, e = importar_vinilos(    _hoja(wb, "VINILOS"));                 errores_total += e
+
+        log(f"\n=== Completado en {time.time()-t0:.0f}s ===",
+            "ok" if errores_total == 0 else "warn")
+
+        cn = conectar()
+        cur = cn.cursor()
+        for tabla in ["mallas.vitrojet", "mallas.grandes", "mallas.pequenas",
+                      "mallas.pasta_plata", "mallas.glassjet_viejo", "mallas.vinilos"]:
+            cur.execute(f"SELECT COUNT(*) FROM {tabla}")
+            log(f"  {tabla}: {cur.fetchone()[0]:,} registros", "dim")
+        cn.close()
+
+    except Exception as e:
+        log(f"ERROR FATAL: {e}", "err")
         import traceback; traceback.print_exc()
+        return False
     finally:
-        cur.close(); conn.close()
+        wb.close()
+
+    return errores_total == 0
+
 
 if __name__ == "__main__":
-    main()
+    sys.exit(0 if main() else 1)

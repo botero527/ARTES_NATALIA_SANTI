@@ -1,21 +1,29 @@
 # -*- coding: utf-8 -*-
-"""AGP Glass DB — Backend FastAPI"""
+"""AGP Glass DB — Backend FastAPI (Azure SQL)"""
 from fastapi import FastAPI, Query, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
-import pyodbc, os, pathlib
+from fastapi.responses import HTMLResponse
+import pyodbc, os, pathlib, subprocess, sys, threading
 
 app = FastAPI(title="AGP Glass DB")
 
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=.\\SQLEXPRESS;"
-    "DATABASE=Vitros_Mallas;"
-    "Trusted_Connection=yes;"
+    "SERVER=agpcolombia.database.windows.net,1433;"
+    "DATABASE=AGP_Ingenieria;"
+    "UID=DevIngenieria;"
+    "PWD=HiJE068i0LQVrwA;"
+    "Encrypt=yes;"
+    "TrustServerCertificate=no;"
+    "Connection Timeout=30;"
 )
 
 def get_conn():
-    return pyodbc.connect(CONN_STR, timeout=10)
+    for driver in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
+        try:
+            return pyodbc.connect(CONN_STR.replace("ODBC Driver 17 for SQL Server", driver), timeout=30)
+        except Exception:
+            continue
+    raise Exception("No se pudo conectar a Azure SQL — verifica el driver ODBC")
 
 def rows_to_dicts(cursor):
     cols = [c[0] for c in cursor.description]
@@ -26,9 +34,17 @@ def rows_to_dicts(cursor):
 def stats():
     conn = get_conn(); cur = conn.cursor()
     result = {}
-    for t in ["mallas_grandes","mallas_pequenas","vitrojet","pasta_plata","glassjet_viejo","vinilos"]:
-        cur.execute(f"SELECT COUNT(*) FROM {t}")
-        result[t] = cur.fetchone()[0]
+    tabla_map = {
+        "mallas_grandes":  "mallas.grandes",
+        "mallas_pequenas": "mallas.pequenas",
+        "vitrojet":        "mallas.vitrojet",
+        "pasta_plata":     "mallas.pasta_plata",
+        "glassjet_viejo":  "mallas.glassjet_viejo",
+        "vinilos":         "mallas.vinilos",
+    }
+    for key, tabla in tabla_map.items():
+        cur.execute(f"SELECT COUNT(*) FROM {tabla}")
+        result[key] = cur.fetchone()[0]
     conn.close()
     return result
 
@@ -40,16 +56,16 @@ def buscar_grandes(q: str = Query(""), limit: int = 50):
         like = f"%{q}%"
         cur.execute("""
             SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar
-            FROM mallas_grandes
+            FROM mallas.grandes
             WHERE descripcion LIKE ? OR codigo LIKE ? OR cod_veh LIKE ? OR concatenar LIKE ?
             ORDER BY codigo
         """, limit, like, like, like, like)
     else:
-        cur.execute("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar FROM mallas_grandes ORDER BY codigo", limit)
+        cur.execute("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar FROM mallas.grandes ORDER BY codigo", limit)
     data = rows_to_dicts(cur); conn.close()
     return data
 
-#   ── Mallas Pequeñas ────────────────────────────────────────────────────────────
+# ── Mallas Pequeñas ────────────────────────────────────────────────────────────
 @app.get("/api/mallas-pequenas")
 def buscar_pequenas(q: str = Query(""), limit: int = 50):
     conn = get_conn(); cur = conn.cursor()
@@ -57,12 +73,12 @@ def buscar_pequenas(q: str = Query(""), limit: int = 50):
         like = f"%{q}%"
         cur.execute("""
             SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar
-            FROM mallas_pequenas
+            FROM mallas.pequenas
             WHERE descripcion LIKE ? OR CAST(codigo AS NVARCHAR) LIKE ? OR cod_veh LIKE ?
             ORDER BY codigo
         """, limit, like, like, like)
     else:
-        cur.execute("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar FROM mallas_pequenas ORDER BY codigo", limit)
+        cur.execute("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,concatenar FROM mallas.pequenas ORDER BY codigo", limit)
     data = rows_to_dicts(cur); conn.close()
     return data
 
@@ -75,9 +91,9 @@ def buscar_vitrojet(q: str = Query(""), limit: int = 50):
         cur.execute("""
             SELECT TOP(?) v.vitro, v.codigo_malla, v.tipo_malla, v.bnerig, v.vehiculo, v.version,
                    COALESCE(g.concatenar, CAST(p.codigo AS NVARCHAR)+' - '+p.descripcion,'') AS info_malla
-            FROM vitrojet v
-            LEFT JOIN mallas_grandes g ON v.tipo_malla='G' AND v.codigo_malla=g.codigo
-            LEFT JOIN mallas_pequenas p ON v.tipo_malla='P' AND v.codigo_malla=CAST(p.codigo AS NVARCHAR)
+            FROM mallas.vitrojet v
+            LEFT JOIN mallas.grandes g ON v.tipo_malla='G' AND v.codigo_malla=g.codigo
+            LEFT JOIN mallas.pequenas p ON v.tipo_malla='P' AND v.codigo_malla=CAST(p.codigo AS NVARCHAR)
             WHERE v.vitro LIKE ? OR v.vehiculo LIKE ? OR v.codigo_malla LIKE ?
             ORDER BY v.vitro DESC
         """, limit, like, like, like)
@@ -85,9 +101,9 @@ def buscar_vitrojet(q: str = Query(""), limit: int = 50):
         cur.execute("""
             SELECT TOP(?) v.vitro, v.codigo_malla, v.tipo_malla, v.bnerig, v.vehiculo, v.version,
                    COALESCE(g.concatenar, CAST(p.codigo AS NVARCHAR)+' - '+p.descripcion,'') AS info_malla
-            FROM vitrojet v
-            LEFT JOIN mallas_grandes g ON v.tipo_malla='G' AND v.codigo_malla=g.codigo
-            LEFT JOIN mallas_pequenas p ON v.tipo_malla='P' AND v.codigo_malla=CAST(p.codigo AS NVARCHAR)
+            FROM mallas.vitrojet v
+            LEFT JOIN mallas.grandes g ON v.tipo_malla='G' AND v.codigo_malla=g.codigo
+            LEFT JOIN mallas.pequenas p ON v.tipo_malla='P' AND v.codigo_malla=CAST(p.codigo AS NVARCHAR)
             ORDER BY v.vitro DESC
         """, limit)
     data = rows_to_dicts(cur); conn.close()
@@ -101,10 +117,10 @@ def buscar_vinilos(q: str = Query(""), limit: int = 50):
         like = f"%{q}%"
         cur.execute("""
             SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo
-            FROM vinilos WHERE vehiculo LIKE ? OR herramental LIKE ? ORDER BY herramental DESC
+            FROM mallas.vinilos WHERE vehiculo LIKE ? OR herramental LIKE ? ORDER BY herramental DESC
         """, limit, like, like)
     else:
-        cur.execute("SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo FROM vinilos ORDER BY herramental DESC", limit)
+        cur.execute("SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo FROM mallas.vinilos ORDER BY herramental DESC", limit)
     data = rows_to_dicts(cur); conn.close()
     return data
 
@@ -116,17 +132,16 @@ def buscar_pasta(q: str = Query(""), limit: int = 50):
         like = f"%{q}%"
         cur.execute("""
             SELECT TOP(?) consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,caso
-            FROM pasta_plata WHERE vehiculo LIKE ? OR consecutivo LIKE ? ORDER BY consecutivo DESC
+            FROM mallas.pasta_plata WHERE vehiculo LIKE ? OR consecutivo LIKE ? ORDER BY consecutivo DESC
         """, limit, like, like)
     else:
-        cur.execute("SELECT TOP(?) consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,caso FROM pasta_plata ORDER BY consecutivo DESC", limit)
+        cur.execute("SELECT TOP(?) consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,caso FROM mallas.pasta_plata ORDER BY consecutivo DESC", limit)
     data = rows_to_dicts(cur); conn.close()
     return data
 
 # ── Sincronizar desde Excel SharePoint ────────────────────────────────────────
 EXCEL_PATH = r"C:\Users\abotero\OneDrive - AGP GROUP\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
 
-import subprocess, sys, threading
 _sync_state = {"running": False, "log": [], "ok": None}
 
 def _run_sync():
