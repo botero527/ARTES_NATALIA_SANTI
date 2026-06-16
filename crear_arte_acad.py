@@ -541,7 +541,7 @@ def actualizar_texto_cajetin(msp, valores):
 
 # ── Pipeline principal ────────────────────────────────────────────────────────
 
-def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_index=0):
+def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_index=0, compensar=False):
     """
     Pipeline completo de creación de arte.
     doc            : AutoCAD Document COM object ya abierto.
@@ -623,6 +623,21 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
         log_fn(f"  {n_piezas} piezas encontradas — procesando pieza {idx + 1}/{n_piezas} ✔")
     else:
         log_fn("  Perímetro encontrado ✔")
+
+    # ── 5b. Compensación de perímetro (offset 3 mm hacia adentro) ────────────
+    _perim_original = None
+    if compensar:
+        log_fn("[5b] Compensando perímetro (offset 3 mm hacia adentro)...")
+        comp_perim = offset_inward(perim_ent, 3.0)
+        if comp_perim is None:
+            alerta_stop("AGP Arte Maker — Error",
+                        "No se pudo crear el offset de compensación (3 mm).")
+            return
+        comp_perim.Layer = perim_ent.Layer
+        _perim_original = perim_ent         # guardar para borrar al final
+        perim_ent = comp_perim
+        msp = doc.ModelSpace
+        log_fn("  Perímetro compensado ✔")
 
     # Filtrar BN que pertenecen a ESTA pieza (centro dentro del bbox del perim)
     def _bbox_ent(e):
@@ -910,6 +925,19 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
         try: e.Layer = LAYER_PLANES
         except Exception: pass
+
+    # Si compensamos: devolver el offset a PERIMETRO y borrar el original
+    if compensar:
+        try:
+            perim_ent.Layer = "PERIMETRO"
+        except Exception:
+            pass
+        if _perim_original is not None:
+            try:
+                _perim_original.Delete()
+                log_fn("  Perímetro original eliminado ✔")
+            except Exception:
+                pass
 
     log_fn("=== Arte base completado ✔ ===")
 

@@ -189,7 +189,6 @@ def cp_guardar(ruta, procesados):
         os.replace(tmp, ruta)
     except Exception as e:
         log.warn(f"Error guardando checkpoint: {e}")
-
 def resultado_guardar(ruta, datos):
     try:
         tmp = ruta + ".tmp"

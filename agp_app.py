@@ -158,7 +158,8 @@ def _buscar_artes(ruta, codigos):
     return sorted(res, key=lambda x: (x["version"], x["archivo"]))
 
 def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
-                        ruta_salida=None, perim_index=0, _com_ya_init=False):
+                        ruta_salida=None, perim_index=0, _com_ya_init=False,
+                        compensar=False):
     """
     _com_ya_init=True → el llamador ya hizo CoInitialize; no llamar de nuevo.
     """
@@ -178,7 +179,8 @@ def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
         try: doc.Activate(); time.sleep(0.5)
         except Exception: pass
         n = _pipeline_acad(doc, log_fn=log_fn, valores_cajetin=valores_cajetin,
-                           ruta_salida=ruta_salida, perim_index=perim_index)
+                           ruta_salida=ruta_salida, perim_index=perim_index,
+                           compensar=compensar)
         return n or 1
     finally:
         if not _com_ya_init:
@@ -254,8 +256,9 @@ class StatCard(ctk.CTkFrame):
 class TabArte(ctk.CTkFrame):
     def __init__(self, parent, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
-        self._ruta_base = ctk.StringVar()
-        self._ruta_dwg  = ctk.StringVar()
+        self._ruta_base  = ctk.StringVar()
+        self._ruta_dwg   = ctk.StringVar()
+        self._compensar  = ctk.BooleanVar(value=False)
         self._resultados = []
         self._build()
 
@@ -307,6 +310,15 @@ class TabArte(ctk.CTkFrame):
                               command=cmd)
             b.pack(side="left", padx=6)
             self._btns.append(b)
+
+        opt_row = ctk.CTkFrame(card_wf, fg_color="transparent")
+        opt_row.pack(fill="x", pady=(6,0))
+        ctk.CTkCheckBox(opt_row, text="Compensar perímetro  (offset 3 mm hacia adentro)",
+                        variable=self._compensar,
+                        font=FONT(11), text_color=PAL["txt_mid"],
+                        fg_color=PAL["accent2"], hover_color=PAL["accent"],
+                        checkmark_color="white", corner_radius=4,
+                        ).pack(side="left", padx=6)
 
         self._prog = ctk.CTkProgressBar(card_wf, mode="indeterminate",
                                          height=4, progress_color=PAL["accent"])
@@ -449,7 +461,8 @@ class TabArte(ctk.CTkFrame):
         self._log_fn("="*50)
         self._log_fn("CREAR ARTE...", "ok")
         try:
-            _crear_arte_autocad(dwg, log_fn=lambda m: self._log_fn(m,"dim"))
+            _crear_arte_autocad(dwg, log_fn=lambda m: self._log_fn(m,"dim"),
+                                compensar=self._compensar.get())
             self._log_fn("Arte completado.", "ok")
         except Exception as e:
             self._log_fn(str(e), "err")
@@ -521,7 +534,8 @@ class TabArte(ctk.CTkFrame):
             # ── 2. Crear arte piezas ──────────────────────────────────────────
             n = _crear_arte_autocad(plano, log_fn=lambda m: self._log_fn(m, "dim"),
                                     valores_cajetin=valores, ruta_salida=arte0,
-                                    perim_index=0, _com_ya_init=True)
+                                    perim_index=0, _com_ya_init=True,
+                                    compensar=self._compensar.get())
             self._log_fn(f"Arte guardado ✔  {os.path.basename(arte0)}", "ok")
 
             for i in range(1, n or 1):
@@ -531,7 +545,8 @@ class TabArte(ctk.CTkFrame):
                     shutil.copy2(plano, copia)
                     _crear_arte_autocad(copia, log_fn=lambda m: self._log_fn(m, "dim"),
                                         valores_cajetin=valores, ruta_salida=arte_i,
-                                        perim_index=i, _com_ya_init=True)
+                                        perim_index=i, _com_ya_init=True,
+                                        compensar=self._compensar.get())
                     self._log_fn(f"Arte {i+1} ✔  {os.path.basename(arte_i)}", "ok")
                 except Exception as e:
                     self._log_fn(f"Pieza {i+1}: {e}", "warn")
