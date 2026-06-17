@@ -320,6 +320,19 @@ class TabArte(ctk.CTkFrame):
                         checkmark_color="white", corner_radius=4,
                         ).pack(side="left", padx=6)
 
+        # Separar — botón resaltado en naranja
+        sep_row = ctk.CTkFrame(card_wf, fg_color="#1A1000", corner_radius=10,
+                               border_width=2, border_color="#FF9500")
+        sep_row.pack(fill="x", padx=0, pady=(8, 4))
+        ctk.CTkLabel(sep_row, text="¿Necesitas vitro/malla sin crear arte?",
+                     font=FONT(10), text_color="#FF9500").pack(side="left", padx=12, pady=6)
+        ctk.CTkButton(sep_row, text="📌  Separar vitro / malla",
+                      font=FONT(11, "bold"), height=32, corner_radius=8,
+                      fg_color="#FF9500", hover_color="#CC7700",
+                      text_color="white",
+                      command=self._separar_vitro_malla,
+                      ).pack(side="right", padx=8, pady=6)
+
         self._prog = ctk.CTkProgressBar(card_wf, mode="indeterminate",
                                          height=4, progress_color=PAL["accent"])
         self._prog.pack(fill="x", pady=(4,0))
@@ -492,6 +505,29 @@ class TabArte(ctk.CTkFrame):
             self._tree.insert("","end", values=(r["version"],r["archivo"],ext), tags=("match",))
         self._lbl_tbl.configure(text=f"{len(res)} resultado{'s' if len(res)!=1 else ''}")
 
+    def _separar_vitro_malla(self):
+        """Abre el diálogo de separación manual de vitro/malla."""
+        try:
+            try:
+                from db_app.asignaciones import dialogo_separar
+            except ImportError:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "db_app"))
+                from asignaciones import dialogo_separar
+
+            import tkinter as _tk
+            root_tk = _tk._default_root
+            prop = dialogo_separar(parent_win=root_tk)
+            if prop:
+                partes = []
+                if prop.get("vitros"):   partes.append("Vitros: "    + ", ".join(prop["vitros"]))
+                if prop.get("grandes"):  partes.append("Mallas G: "  + ", ".join(prop["grandes"]))
+                if prop.get("pequenas"): partes.append("Mallas P: "  + ", ".join(str(c) for c in prop["pequenas"]))
+                mb.showinfo("Separación confirmada",
+                            "Asignado en BD y Excel:\n\n" + "\n".join(partes))
+        except Exception as e:
+            mb.showerror("Error", f"No se pudo abrir el módulo de asignaciones:\n{e}")
+
     def _todo_en_uno(self):
         if not self._validar(): return
         dwg    = self._ruta_dwg.get().strip().strip('"')
@@ -611,18 +647,18 @@ class TabBD(ctk.CTkFrame):
         ("vinilos",         "Vinilos",    "🎨", "#ec4899"),
     ]
     QUERIES = {
-        "vitrojet":  ("SELECT TOP(?) v.vitro,v.codigo_malla,v.tipo_malla,v.bnerig,v.vehiculo,v.version "
-                      "FROM mallas.vitrojet v {where} ORDER BY v.vitro DESC",
-                      ["Vitro","Malla","Tipo","B/N","Vehículo","Versión"],
-                      ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version"]),
-        "grandes":   ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version "
-                      "FROM mallas.grandes {where} ORDER BY codigo",
-                      ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión"],
-                      ["codigo","cod_veh","descripcion","pieza","tipo","version"]),
-        "pequenas":  ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version "
-                      "FROM mallas.pequenas {where} ORDER BY codigo",
-                      ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión"],
-                      ["codigo","cod_veh","descripcion","pieza","tipo","version"]),
+        "vitrojet":  ("SELECT TOP(?) v.vitro,v.codigo_malla,v.tipo_malla,v.bnerig,v.vehiculo,v.version,v.ruta,v.responsable "
+                      "FROM mallas.vitrojet v {where} ORDER BY TRY_CAST(SUBSTRING(v.vitro,3,50) AS INT) DESC",
+                      ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable"],
+                      ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable"]),
+        "grandes":   ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,responsable "
+                      "FROM mallas.grandes {where} ORDER BY TRY_CAST(SUBSTRING(codigo,3,50) AS INT)",
+                      ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Responsable"],
+                      ["codigo","cod_veh","descripcion","pieza","tipo","version","responsable"]),
+        "pequenas":  ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,responsable "
+                      "FROM mallas.pequenas {where} ORDER BY TRY_CAST(codigo AS INT)",
+                      ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Responsable"],
+                      ["codigo","cod_veh","descripcion","pieza","tipo","version","responsable"]),
         "vinilos":   ("SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo "
                       "FROM mallas.vinilos {where} ORDER BY herramental",
                       ["Herramental","Vehículo","Cód.Veh.","Versión","Pieza","Tipo"],
@@ -739,13 +775,28 @@ class TabBD(ctk.CTkFrame):
         self._build_tree_cols("vitrojet")
         self._do_search()
 
+    _COL_W = {
+        # Vitrojet
+        "Vitro": 90, "Malla": 90, "Tipo": 55, "B/N": 55,
+        "Vehículo": 160, "Versión": 90, "Ruta": 260,
+        # Grandes / Pequeñas / Vinilos
+        "Código": 85, "Cód.Veh.": 80, "Descripción": 160,
+        "Pieza": 100, "Tipo malla": 60, "Herramental": 100,
+        # Pasta
+        "Consecutivo": 95, "Ruta Archivo": 260, "Caso": 90,
+        # Común
+        "Responsable": 120,
+    }
+    _COL_STRETCH = {"Ruta", "Ruta Archivo", "Vehículo", "Descripción"}
+
     def _build_tree_cols(self, tab):
         _, headers, _ = self.QUERIES[tab]
         self._tree.configure(columns=headers)
         for h in headers:
-            self._tree.heading(h, text=h)
-            w = 300 if h == "Ruta Archivo" else (180 if h in ("Descripción","Vehículo","Info Malla") else 100)
-            self._tree.column(h, width=w, minwidth=60)
+            self._tree.heading(h, text=h, anchor="w")
+            w = self._COL_W.get(h, 100)
+            stretch = h in self._COL_STRETCH
+            self._tree.column(h, width=w, minwidth=55, stretch=stretch, anchor="w")
 
     def _set_tab(self, key):
         self._tab = key
@@ -766,20 +817,22 @@ class TabBD(ctk.CTkFrame):
         tab = self._tab
         sql_tpl, headers, fields = self.QUERIES[tab]
         limit = 100
+        # Limpiar tree siempre antes de la query — nunca mostrar datos de otro tab
+        self.after(0, lambda: [self._tree.delete(i) for i in self._tree.get_children()])
         try:
             if q:
-                where  = self.WHERE[tab]
+                where    = self.WHERE[tab]
                 n_params = where.count("?")
-                like   = f"%{q}%"
-                params = (limit,) + (like,) * n_params
-                sql    = sql_tpl.format(where=where)
+                like     = f"%{q}%"
+                params   = (limit,) + (like,) * n_params
+                sql      = sql_tpl.format(where=where)
             else:
                 params = (limit,)
                 sql    = sql_tpl.format(where="")
             rows = db_query(sql, params)
         except Exception as e:
             self.after(0, lambda: self._lbl_count.configure(
-                text=f"Error BD: {str(e)[:60]}", text_color=PAL["red"]))
+                text=f"Error BD: {str(e)[:80]}", text_color=PAL["red"]))
             return
         self.after(0, self._fill, rows, fields, headers)
 

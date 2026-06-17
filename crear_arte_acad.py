@@ -120,6 +120,19 @@ def alerta_stop(titulo, msg):
     ctypes.windll.user32.MessageBoxW(0, msg, titulo, 0x10)
 
 
+def send_cmd(doc, cmd, retries=8, delay=0.6):
+    """SendCommand con retry automático para RPC_E_CALL_REJECTED (AutoCAD ocupado)."""
+    for i in range(retries):
+        try:
+            doc.SendCommand(cmd)
+            return
+        except Exception as e:
+            if i < retries - 1:
+                time.sleep(delay)
+            else:
+                raise
+
+
 def handles_actuales(msp):
     """Devuelve el set de handles de todos los objetos en msp."""
     h = set()
@@ -281,7 +294,7 @@ def _make_entry(parent, width_chars=28):
     return e, var
 
 
-def dialogo_cajetin(nombre_plano=""):
+def dialogo_cajetin(nombre_plano="", ruta_salida=""):
     import tkinter as tk
     import re as _r
 
@@ -452,6 +465,69 @@ def dialogo_cajetin(nombre_plano=""):
 
     entries["DIBUJO"].focus_set()
 
+    # ── Auto-asignación vitro / malla ─────────────────────────────────────────
+    _section_header(body, "ASIGNACIÓN VITRO / MALLA").pack(fill="x", pady=8)
+
+    asig_row = tk.Frame(body, bg=_C["bg"], pady=4)
+    asig_row.pack(fill="x")
+
+    asig_lbl = tk.Label(asig_row, text="Asignación automática",
+                        font=("Segoe UI", 9), fg=_C["muted"], bg=_C["bg"],
+                        width=17, anchor="e")
+    asig_lbl.pack(side="left", padx=10)
+
+    asig_preview = tk.Label(asig_row, text="(sin asignar)",
+                            font=("Segoe UI", 9, "italic"), fg=_C["muted"], bg=_C["bg"])
+    asig_preview.pack(side="left", padx=(0, 8))
+
+    _asignacion_cache = [None]
+
+    def _auto_asignar():
+        try:
+            from db_app.asignaciones import dialogo_asignacion, confirmar
+        except ImportError:
+            try:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "db_app"))
+                from asignaciones import dialogo_asignacion, confirmar
+            except Exception as ie:
+                tk.messagebox.showerror("Error", f"No se pudo cargar módulo asignaciones:\n{ie}")
+                return
+
+        prop = dialogo_asignacion(parent=root, nombre_plano=nombre_plano)
+        if not prop:
+            return
+
+        _asignacion_cache[0] = prop
+
+        partes = []
+        if prop.get("vitros"):
+            partes.append("Vitros: " + ", ".join(prop["vitros"]))
+            entries["VITRO"].delete(0, tk.END)
+            entries["VITRO"].insert(0, " / ".join(prop["vitros"]))
+            entries["VITRO"].configure(fg=_C["auto_fg"])
+        if prop.get("grandes") or prop.get("pequenas"):
+            mallas = prop.get("grandes", []) + [str(c) for c in prop.get("pequenas", [])]
+            partes.append("Mallas: " + ", ".join(mallas))
+            entries["MALLA"].delete(0, tk.END)
+            entries["MALLA"].insert(0, " / ".join(mallas))
+            entries["MALLA"].configure(fg=_C["auto_fg"])
+
+        asig_preview.configure(text=" | ".join(partes) if partes else "(sin asignación)",
+                               fg=_C["success"])
+
+    btn_asig = tk.Button(
+        asig_row, text="🎯  Auto-asignar",
+        command=_auto_asignar,
+        bg=_C["accent2"], fg="#FFFFFF",
+        activebackground=_C["accent"], activeforeground="#FFFFFF",
+        relief="flat", bd=0, font=("Segoe UI", 9, "bold"),
+        padx=10, pady=5, cursor="hand2",
+    )
+    btn_asig.bind("<Enter>", lambda _: btn_asig.configure(bg=_C["accent"]))
+    btn_asig.bind("<Leave>", lambda _: btn_asig.configure(bg=_C["accent2"]))
+    btn_asig.pack(side="left")
+
     # ── Navegación Tab entre campos ───────────────────────────────────────────
     all_entries = [entries[c] for _, filas in SECCIONES for c, _, _ in filas]
     for i, e in enumerate(all_entries):
@@ -464,10 +540,48 @@ def dialogo_cajetin(nombre_plano=""):
     btn_area.pack(fill="x")
 
     def aceptar(*_):
-        resultado[0] = {c: entries[c].get().strip() for _, filas in SECCIONES for c, _, _ in filas}
+        vals = {c: entries[c].get().strip() for _, filas in SECCIONES for c, _, _ in filas}
+        resultado[0] = vals
+
+        # Confirmar asignación en BD si el usuario usó auto-asignar
+        if _asignacion_cache[0] is not None:
+            try:
+                try:
+                    from db_app.asignaciones import confirmar as _confirmar
+                except ImportError:
+                    import sys as _sys, os as _os
+                    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "db_app"))
+                    from asignaciones import confirmar as _confirmar
+                # responsable desde campo DIBUJO (None si vacío → NULL en BD, nunca string vacío)
+                _resp = vals.get("DIBUJO", "").strip() or None
+                _confirmar(
+                    _asignacion_cache[0],
+                    vehiculo     = vals.get("VEHICULO", ""),
+                    version      = vals.get("MODELO", ""),
+                    pieza        = vals.get("PIEZA", ""),
+                    cod_vehiculo = vals.get("NAGS", ""),
+                    cod_completo = vals.get("COD PLANO", "") or nombre_plano,
+                    ruta_archivo = ruta_salida or "",
+                    responsable  = _resp,
+                )
+            except Exception as _e:
+                print(f"[cajetin] WARN confirmar asignación: {_e}")
+
         root.destroy()
 
     def cancelar(*_):
+        # Si había reserva pendiente, marcarla como CANCELADA (reciclable)
+        if _asignacion_cache[0] is not None:
+            try:
+                try:
+                    from db_app.asignaciones import cancelar as _cancelar_asig
+                except ImportError:
+                    import sys as _sys, os as _os
+                    _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "db_app"))
+                    from asignaciones import cancelar as _cancelar_asig
+                _cancelar_asig(_asignacion_cache[0])
+            except Exception as _e:
+                print(f"[cajetin] WARN cancelar asignación: {_e}")
         root.destroy()
 
     _rounded_btn(btn_area, "✔  Aplicar al cajetín", aceptar,
@@ -480,6 +594,7 @@ def dialogo_cajetin(nombre_plano=""):
              side="right", padx=4)
 
     root.bind("<Escape>", cancelar)
+    root.protocol("WM_DELETE_WINDOW", cancelar)
 
     # ── Centrar ventana en pantalla (limitar al 90% de altura) ───────────────
     root.update_idletasks()
@@ -707,14 +822,15 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                     pass
             if n2:
                 log_fn(f"  Nivel 2 explosión: {n2} bloques anidados ✔")
-            time.sleep(0.5)
+            doc.Regen(0)
+            time.sleep(0.25)
             msp = doc.ModelSpace
 
         except Exception as e_ins:
             log_fn(f"  WARN InsertBlock COM falló ({e_ins}), usando SendCommand...")
-            doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
+            send_cmd(doc, f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
             time.sleep(3)
-            doc.SendCommand("EXPLODE\nL\n\n")
+            send_cmd(doc, "EXPLODE\nL\n\n")
             time.sleep(2)
             msp = doc.ModelSpace
 
@@ -729,8 +845,14 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     corregir_colores_bylayer(nuevos)
 
     # ── 7. Buscar CAJETIN y LOGO1 ─────────────────────────────────────────
-    logo1_ents   = [e for e in msp if "LOGO1"   in e.Layer.upper()]
-    cajetin_ents = [e for e in msp if "CAJETIN" in e.Layer.upper()]
+    logo1_ents, cajetin_ents = [], []
+    for _e in msp:
+        try:
+            ly = _e.Layer.upper()
+            if "LOGO1"   in ly: logo1_ents.append(_e)
+            if "CAJETIN" in ly: cajetin_ents.append(_e)
+        except Exception:
+            pass
     log_fn(f"  CAJETIN en msp: {len(cajetin_ents)} obj  |  LOGO1: {len(logo1_ents)} obj")
 
     borrados = 0
@@ -825,14 +947,14 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     # ── 12. Hatch k2 ──────────────────────────────────────────────────────
     log_fn("[12] Hatch k2...")
     hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
-    time.sleep(1.2)
+    time.sleep(0.3)
     msp = doc.ModelSpace
 
     # ── 13. Hatch k ───────────────────────────────────────────────────────
     log_fn("[13] Hatch k...")
     if bn_ent:
         hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
-        time.sleep(1.2)
+        time.sleep(0.3)
         msp = doc.ModelSpace
     else:
         log_fn("  WARN: no se encontró banda negra.")
@@ -858,16 +980,16 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
 
                 if not bloque_existe:
                     log_fn(f"  Importando bloque '{BLOQUE_25}' desde cajetines...")
-                    doc.SendCommand(f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-                    time.sleep(4)
-                    doc.SendCommand("ERASE\nL\n\n")
-                    time.sleep(1.5)
+                    send_cmd(doc, f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
+                    time.sleep(3.0)
+                    send_cmd(doc, "ERASE\nL\n\n")
+                    time.sleep(1.0)
                     log_fn(f"  Bloque '{BLOQUE_25}' registrado.")
 
                 def ejecutar_divide(handle_curva):
-                    doc.SendCommand(f'CLAYER\n{LAYER_K3}\n')
-                    time.sleep(0.3)
-                    doc.SendCommand(
+                    send_cmd(doc, f'CLAYER\n{LAYER_K3}\n')
+                    time.sleep(0.2)
+                    send_cmd(doc,
                         f'DIVIDE\n'
                         f'(handent "{handle_curva}")\n'
                         f'B\n'
@@ -875,11 +997,11 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                         f'Y\n'
                         f'{n_pepas}\n'
                     )
-                    espera = max(4.0, n_pepas * 0.02)
+                    espera = max(2.5, n_pepas * 0.015)
                     log_fn(f"  Esperando {espera:.1f}s (DIVIDE)...")
                     time.sleep(espera)
-                    doc.SendCommand("CLAYER\n0\n")
-                    time.sleep(0.3)
+                    send_cmd(doc, "CLAYER\n0\n")
+                    time.sleep(0.2)
 
                 def borrar_k3():
                     _msp = doc.ModelSpace
@@ -889,7 +1011,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                                 _e.Delete()
                         except Exception:
                             pass
-                    time.sleep(0.3)
+                    time.sleep(0.2)
 
                 ejecutar_divide(off_bn.Handle)
                 log_fn("  Degradé en layer k3 ✔")
@@ -907,8 +1029,8 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                     log_fn("  Invirtiendo degradé...")
                     borrar_k3()
                     h_rev = off_bn.Handle
-                    doc.SendCommand(f'REVERSE\n(handent "{h_rev}")\n\n')
-                    time.sleep(0.6)
+                    send_cmd(doc, f'REVERSE\n(handent "{h_rev}")\n\n')
+                    time.sleep(0.4)
                     ejecutar_divide(off_bn.Handle)
                     log_fn("  Degradé invertido ✔")
                 else:
@@ -920,7 +1042,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
 
     # ── 15. Mover PERIMETRO/BN a PLANES ──────────────────────────────────
     log_fn("[15] Moviendo geometría original a PLANES...")
-    time.sleep(1.5)
+    time.sleep(0.5)
     msp = doc.ModelSpace
     for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
         try: e.Layer = LAYER_PLANES
@@ -944,7 +1066,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     # ── 17. Cajetín ───────────────────────────────────────────────────────
     log_fn("[17] Aplicando datos del cajetín...")
     if valores_cajetin is None:
-        valores_cajetin = dialogo_cajetin(nombre_plano)
+        valores_cajetin = dialogo_cajetin(nombre_plano, ruta_salida=ruta_salida or "")
 
     if valores_cajetin:
         actualizar_texto_cajetin(doc.ModelSpace, valores_cajetin)
@@ -967,8 +1089,8 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
 
     # ── 19. Purge ─────────────────────────────────────────────────────────
     log_fn("[19] Purgando layers y bloques sin usar...")
-    doc.SendCommand("-PURGE\nAll\n*\nN\n")
-    time.sleep(2)
+    send_cmd(doc, "-PURGE\nAll\n*\nN\n")
+    time.sleep(1.0)
 
     # ── Guardar si se indicó ruta ─────────────────────────────────────────
     if ruta_salida:
@@ -980,8 +1102,8 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
         doc.SaveAs(abs_salida)
         log_fn(f"  Guardado en: {abs_salida} ✔")
     else:
-        doc.SendCommand("QSAVE\n")
-        time.sleep(1.0)
+        send_cmd(doc, "QSAVE\n")
+        time.sleep(0.5)
 
     log_fn("=== Arte completado ✔ ===")
     return n_piezas

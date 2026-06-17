@@ -25,7 +25,8 @@ CONN_STR = (
     "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
 )
 
-MAX_VACIAS  = 200
+MAX_VACIAS  = 15       # filas consecutivas vacías = fin real de datos
+MAX_FILAS   = 60_000  # tope absoluto anti-formato-fantasma (openpyxl read_only)
 CHUNK       = 150   # filas por lote en VALUES batch (límite 2100 params SQL Server)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -80,8 +81,13 @@ def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
     visto  = {}   # pk → tupla
     sin_pk = []
     vacias = 0
+    n_leidas = 0
 
     for row in ws.iter_rows(min_row=2, values_only=True):
+        n_leidas += 1
+        if n_leidas > MAX_FILAS:
+            log(f"  WARN {nombre}: se alcanzó límite de {MAX_FILAS} filas — revisar Excel", "warn")
+            break
         params = build_row_fn(row)
         if params is None:
             vacias += 1
@@ -183,6 +189,92 @@ def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
     return ok, err
 
 # ─────────────────────────────────────────────────────────────────────────────
+#  Motor MERGE (no borra asignados)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _bulk_sync_merge(nombre, ws, tabla, pk_col, columnas, build_row_fn):
+    """
+    UPSERT seguro: inserta filas nuevas y actualiza las que estén en el Excel,
+    EXCEPTO las que ya tienen vehiculo/descripcion llenos en BD (ya asignadas).
+    Nunca borra nada.
+    """
+    log(f"Leyendo {nombre} del Excel (modo MERGE)...")
+    t0 = time.time()
+    visto = {}
+    vacias = 0
+    n_leidas = 0
+
+    for row in ws.iter_rows(min_row=2, values_only=True):
+        n_leidas += 1
+        if n_leidas > MAX_FILAS:
+            log(f"  WARN {nombre}: se alcanzó límite de {MAX_FILAS} filas — revisar Excel", "warn")
+            break
+        params = build_row_fn(row)
+        if params is None:
+            vacias += 1
+            if vacias >= MAX_VACIAS:
+                break
+            continue
+        vacias = 0
+        visto[params[0]] = params   # pk siempre en índice 0
+
+    filas = list(visto.values())
+    log(f"  {nombre}: {len(filas)} filas leídas ({time.time()-t0:.1f}s)")
+
+    if not filas:
+        log(f"  {nombre}: sin datos — omitido", "warn")
+        return 0, 0
+
+    # Obtener PKs ya asignados en BD (vehiculo/descripcion no NULL)
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        # Determinar columna de "asignado" según tabla
+        if "vitrojet" in tabla:
+            cur.execute(f"SELECT {pk_col} FROM {tabla} WHERE vehiculo IS NOT NULL")
+        else:
+            cur.execute(f"SELECT {pk_col} FROM {tabla} WHERE descripcion IS NOT NULL")
+        asignados = {str(r[0]).strip() for r in cur.fetchall()}
+
+        # Construir placeholders
+        cols_str = ", ".join(columnas)
+        ph_str   = ", ".join(["?"] * len(columnas))
+        upd_cols = [c for c in columnas if c != pk_col]
+        upd_str  = ", ".join(f"{c}=?" for c in upd_cols)
+
+        ok = err = saltados = 0
+        for f in filas:
+            pk_val = str(f[0]).strip()
+            if pk_val in asignados:
+                saltados += 1
+                continue
+            try:
+                # Intentar UPDATE primero; si no afecta filas → INSERT
+                upd_vals = [f[i] for i, c in enumerate(columnas) if c != pk_col]
+                cur.execute(
+                    f"UPDATE {tabla} SET {upd_str} WHERE {pk_col}=?",
+                    upd_vals + [f[0]]
+                )
+                if cur.rowcount == 0:
+                    cur.execute(
+                        f"INSERT INTO {tabla} ({cols_str}) VALUES ({ph_str})",
+                        list(f)
+                    )
+                ok += 1
+            except Exception as e:
+                err += 1
+                if err <= 3:
+                    log(f"    error {pk_val}: {str(e)[:60]}", "warn")
+
+        cn.commit()
+        log(f"  {nombre}: {ok:,} actualizados | {saltados} preservados | {err} errores",
+            "ok" if err == 0 else "warn")
+        return ok, err
+    finally:
+        cn.close()
+
+
+# ─────────────────────────────────────────────────────────────────────────────
 #  Funciones por tabla
 # ─────────────────────────────────────────────────────────────────────────────
 
@@ -194,20 +286,24 @@ def importar_vitrojet(ws):
     )
     def build(r):
         vitro = clean(r[0], 30)
-        malla = clean(r[1], 30)
-        if not vitro or not malla:
+        if not vitro:
             return None
-        tipo = "G" if str(malla).upper().startswith("A-") else "P"
+        malla = clean(r[1], 30) if len(r) > 1 else None
+        tipo  = "G" if malla and str(malla).upper().startswith("A-") else "P"
         return (
             vitro, malla, tipo,
-            clean(r[2], 100),
-            clean(r[3], 20),
-            clean(r[4], 200),
-            clean(r[5], 100) if len(r) > 5 else None,
-            clean(r[6], 500) if len(r) > 6 else None,
+            clean(r[2], 100)  if len(r) > 2 else None,  # cod_completo
+            clean(r[3], 20)   if len(r) > 3 else None,  # bnerig
+            clean(r[4], 200)  if len(r) > 4 else None,  # vehiculo
+            clean(r[5], 100)  if len(r) > 5 else None,  # version
+            clean(r[6], 500)  if len(r) > 6 else None,  # ruta
+            'excel',                                      # cambio — debe ir aquí para que columnas[8] mapee correctamente
         )
-    return _bulk_sync("VITROJET", ws,
-                      "DELETE FROM mallas.vitrojet", sql_i, build)
+    # Preservar asignaciones ya existentes: no borrar, hacer MERGE por vitro
+    return _bulk_sync_merge("VITROJET", ws, "mallas.vitrojet", "vitro",
+                            ["vitro","codigo_malla","tipo_malla","cod_completo",
+                             "bnerig","vehiculo","version","ruta","cambio"],
+                            build)
 
 
 def importar_grandes(ws):
@@ -222,12 +318,12 @@ def importar_grandes(ws):
             return None
         return (
             c,
-            clean(r[1], 30),
-            clean(r[2], 200),
-            clean(r[3], 100),
-            clean(r[4], 20),
-            clean(r[5], 100),
-            clean(r[6], 300) if len(r) > 6 else None,
+            clean(r[1], 30)   if len(r) > 1 else None,
+            clean(r[2], 200)  if len(r) > 2 else None,
+            clean(r[3], 100)  if len(r) > 3 else None,
+            clean(r[4], 20)   if len(r) > 4 else None,
+            clean(r[5], 100)  if len(r) > 5 else None,
+            clean(r[6], 300)  if len(r) > 6 else None,
         )
     return _bulk_sync("MALLAS GRANDES", ws,
                       "DELETE FROM mallas.grandes", sql_i, build)
@@ -253,7 +349,7 @@ def importar_pequenas(ws):
             return None
         return (
             codigo,
-            clean(r[1], 30),
+            clean(r[1], 30) if len(r) > 1 else None,
             desc,
             clean(r[3], 100) if len(r) > 3 else None,
             clean(r[4], 20)  if len(r) > 4 else None,
@@ -378,6 +474,14 @@ def main(log_fn=None):
 
         log(f"\n=== Completado en {time.time()-t0:.0f}s ===",
             "ok" if errores_total == 0 else "warn")
+
+        # Resincronizar secuencias para que el consecutivo siga desde el MAX real
+        try:
+            from asignaciones import sincronizar_secuencias
+            sincronizar_secuencias()
+            log("  Secuencias de consecutivo actualizadas", "ok")
+        except Exception as _se:
+            log(f"  WARN secuencias: {_se}", "warn")
 
         cn = conectar()
         cur = cn.cursor()
