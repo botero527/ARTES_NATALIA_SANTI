@@ -887,166 +887,152 @@ def _conectar_sap():
 class TabScanner(ctk.CTkFrame):
 
     def __init__(self, parent, **kw):
-        super().__init__(parent, fg_color="transparent", **kw)
-        self._ultimo_orden = None
+        super().__init__(parent, fg_color=PAL["bg"], **kw)
         self._build()
 
-    # ── UI ───────────────────────────────────────────────────────────────────
     def _build(self):
         self.columnconfigure(0, weight=1)
 
-        # ── Header hero ──────────────────────────────────────────────────────
-        hero = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=14,
-                            border_width=1, border_color=PAL["border"])
-        hero.grid(row=0, column=0, sticky="ew", padx=4, pady=(6, 4))
+        # ── Barra de escaneo ─────────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=0)
+        top.grid(row=0, column=0, sticky="ew")
+        top.columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(hero, text="📷", font=FONT(36)).pack(pady=(22, 0))
-        ctk.CTkLabel(hero, text="SCANNER DE ÓRDENES",
-                     font=FONT(18, "bold"), text_color=PAL["accent"]).pack()
-        ctk.CTkLabel(hero, text="Escanea el código de barras o escribe el número de orden",
-                     font=FONT(11), text_color=PAL["txt_mid"]).pack(pady=(2, 16))
-
-        # Barra de búsqueda
-        search_row = ctk.CTkFrame(hero, fg_color="transparent")
-        search_row.pack(fill="x", padx=40, pady=(0, 24))
+        search_row = ctk.CTkFrame(top, fg_color="transparent")
+        search_row.pack(fill="x", padx=30, pady=18)
         search_row.columnconfigure(0, weight=1)
 
         self._entry = ctk.CTkEntry(
             search_row,
-            placeholder_text="  Número de orden...",
-            height=52, font=FONT(16),
+            placeholder_text="Escanea o escribe el número de orden...",
+            height=60, font=FONT(20),
             fg_color=PAL["card2"], border_color=PAL["accent"],
-            border_width=2, text_color=PAL["txt"],
-            corner_radius=10,
+            border_width=2, text_color=PAL["txt"], corner_radius=10,
         )
-        self._entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
-        self._entry.bind("<Return>", lambda _: self._buscar())
+        self._entry.grid(row=0, column=0, sticky="ew", padx=(0, 12))
+        self._entry.bind("<Return>",   lambda _: self._buscar())
         self._entry.bind("<KP_Enter>", lambda _: self._buscar())
         self._entry.focus_set()
 
-        self._btn_buscar = ctk.CTkButton(
-            search_row, text="Buscar", width=110, height=52,
-            font=FONT(13, "bold"), corner_radius=10,
+        ctk.CTkButton(
+            search_row, text="BUSCAR", width=130, height=60,
+            font=FONT(15, "bold"), corner_radius=10,
             fg_color=PAL["accent2"], hover_color=PAL["accent"],
             command=self._buscar,
-        )
-        self._btn_buscar.grid(row=0, column=1)
+        ).grid(row=0, column=1)
 
-        self._prog = ctk.CTkProgressBar(hero, mode="indeterminate", height=3,
-                                         progress_color=PAL["accent"])
-        self._prog.pack(fill="x", padx=40, pady=(0, 4))
+        self._prog = ctk.CTkProgressBar(top, mode="indeterminate",
+                                         height=4, progress_color=PAL["accent"])
+        self._prog.pack(fill="x", padx=0, pady=0)
         self._prog.set(0)
 
-        # ── Estado / error ────────────────────────────────────────────────────
-        self._lbl_estado = ctk.CTkLabel(self, text="",
-                                         font=FONT(11), text_color=PAL["txt_mid"])
-        self._lbl_estado.grid(row=1, column=0, pady=(2, 0))
+        # ── Zona resultado ───────────────────────────────────────────────────
+        self._zona = ctk.CTkFrame(self, fg_color="transparent")
+        self._zona.grid(row=1, column=0, sticky="nsew", padx=20, pady=20)
+        self._zona.columnconfigure((0, 1), weight=1)
+        self._zona.rowconfigure(1, weight=1)
+        self.rowconfigure(1, weight=1)
 
-        # ── Panel resultado (oculto al inicio) ────────────────────────────────
-        self._panel = ctk.CTkFrame(self, fg_color="transparent")
-        self._panel.grid(row=2, column=0, sticky="ew", padx=4, pady=4)
-        self._panel.columnconfigure((0, 1), weight=1)
+        # — Fila superior: ORDEN  |  ZFER ——————————————————————————————————
+        self._c_orden = self._chip(self._zona, "ORDEN", "—",
+                                   PAL["accent"], "#0a1a35", col=0)
+        self._c_zfer  = self._chip(self._zona, "ZFER",  "—",
+                                   PAL["green"],  "#0a2010", col=1)
 
-        # Card ORDEN / ZFER
-        card_ids = ctk.CTkFrame(self._panel, fg_color=PAL["card"], corner_radius=12,
-                                 border_width=1, border_color=PAL["border"])
-        card_ids.grid(row=0, column=0, columnspan=2, sticky="ew", padx=2, pady=(0, 6))
-        card_ids.columnconfigure((0, 1), weight=1)
+        # — Fila inferior: VITRO  |  MALLAS ————————————————————————————————
+        # Vitro
+        box_v = ctk.CTkFrame(self._zona, fg_color=PAL["card"],
+                              corner_radius=16, border_width=2,
+                              border_color=PAL["accent2"])
+        box_v.grid(row=1, column=0, sticky="nsew", padx=(0, 10), pady=0)
+        box_v.columnconfigure(0, weight=1)
 
-        self._card_orden = self._big_card(card_ids, "ORDEN", "—", PAL["accent"],   col=0)
-        self._card_zfer  = self._big_card(card_ids, "ZFER",  "—", PAL["green"],    col=1)
-
-        # Card Vitro
-        card_vitro = ctk.CTkFrame(self._panel, fg_color=PAL["card"], corner_radius=12,
-                                   border_width=1, border_color=PAL["border"])
-        card_vitro.grid(row=1, column=0, sticky="nsew", padx=(2, 4), pady=4)
-        card_vitro.columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(card_vitro, text="VITRO",
-                     font=FONT(9, "bold"), text_color=PAL["txt_dim"]
-                     ).pack(anchor="w", padx=16, pady=(12, 0))
-        ctk.CTkFrame(card_vitro, fg_color=PAL["accent"], height=2
-                     ).pack(fill="x", padx=16, pady=(2, 8))
-
-        self._lbl_texto1 = ctk.CTkLabel(card_vitro, text="—",
-                                         font=FONT(13, "bold"), text_color=PAL["txt"],
-                                         wraplength=320, justify="left")
-        self._lbl_texto1.pack(anchor="w", padx=16)
-        self._lbl_texto2 = ctk.CTkLabel(card_vitro, text="",
-                                         font=FONT(11), text_color=PAL["txt_mid"],
-                                         wraplength=320, justify="left")
-        self._lbl_texto2.pack(anchor="w", padx=16, pady=(4, 16))
-
-        # Card Mallas
-        card_mallas = ctk.CTkFrame(self._panel, fg_color=PAL["card"], corner_radius=12,
-                                    border_width=1, border_color=PAL["border"])
-        card_mallas.grid(row=1, column=1, sticky="nsew", padx=(4, 2), pady=4)
-        card_mallas.columnconfigure(0, weight=1)
-        card_mallas.rowconfigure(1, weight=1)
-
-        ctk.CTkLabel(card_mallas, text="MALLAS / COMPONENTES",
-                     font=FONT(9, "bold"), text_color=PAL["txt_dim"]
-                     ).pack(anchor="w", padx=16, pady=(12, 0))
-        ctk.CTkFrame(card_mallas, fg_color=PAL["purple"], height=2
-                     ).pack(fill="x", padx=16, pady=(2, 8))
-
-        import tkinter.ttk as _ttk
-        frm_tree = ctk.CTkFrame(card_mallas, fg_color=PAL["card"], corner_radius=0)
-        frm_tree.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-
-        self._tree_mallas = _ttk.Treeview(frm_tree, style="AGP.Treeview",
-                                           columns=("comp",), show="headings", height=8)
-        self._tree_mallas.heading("comp", text="Denominación Componente")
-        self._tree_mallas.column("comp", width=300)
-        self._tree_mallas.pack(side="left", fill="both", expand=True)
-        sb = _ttk.Scrollbar(frm_tree, orient="vertical",
-                            command=self._tree_mallas.yview)
-        sb.pack(side="right", fill="y")
-        self._tree_mallas.configure(yscrollcommand=sb.set)
-
-        # ── Historial reciente ────────────────────────────────────────────────
-        card_hist = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=12,
-                                  border_width=1, border_color=PAL["border"])
-        card_hist.grid(row=3, column=0, sticky="ew", padx=4, pady=(0, 8))
-        card_hist.columnconfigure(0, weight=1)
-
-        ctk.CTkLabel(card_hist, text="HISTORIAL DE BÚSQUEDAS",
-                     font=FONT(9, "bold"), text_color=PAL["txt_dim"]
-                     ).pack(anchor="w", padx=16, pady=(10, 0))
-        ctk.CTkFrame(card_hist, fg_color=PAL["border"], height=1
-                     ).pack(fill="x", padx=16, pady=(4, 6))
-
-        frm_hist = ctk.CTkFrame(card_hist, fg_color="transparent")
-        frm_hist.pack(fill="both", expand=True, padx=12, pady=(0, 10))
-
-        self._tree_hist = _ttk.Treeview(
-            frm_hist, style="AGP.Treeview",
-            columns=("hora", "orden", "zfer", "vitro", "mallas"),
-            show="headings", height=4,
+        ctk.CTkLabel(box_v, text="VITRO",
+                     font=FONT(11, "bold"), text_color=PAL["accent"]
+                     ).pack(anchor="w", padx=24, pady=(20, 4))
+        ctk.CTkFrame(box_v, fg_color=PAL["accent2"], height=2
+                     ).pack(fill="x", padx=24, pady=(0, 14))
+        self._lbl_vitro = ctk.CTkLabel(
+            box_v, text="—", font=FONT(22, "bold"),
+            text_color=PAL["txt"], wraplength=480, justify="left",
         )
-        for col, w, lbl in [("hora",70,"Hora"),("orden",100,"Orden"),
-                             ("zfer",100,"ZFER"),("vitro",220,"Vitro"),
-                             ("mallas",260,"Mallas")]:
+        self._lbl_vitro.pack(anchor="w", padx=24)
+        self._lbl_vitro2 = ctk.CTkLabel(
+            box_v, text="", font=FONT(16),
+            text_color=PAL["txt_mid"], wraplength=480, justify="left",
+        )
+        self._lbl_vitro2.pack(anchor="w", padx=24, pady=(6, 20))
+
+        # Mallas
+        box_m = ctk.CTkFrame(self._zona, fg_color=PAL["card"],
+                              corner_radius=16, border_width=2,
+                              border_color="#5b21b6")
+        box_m.grid(row=1, column=1, sticky="nsew", padx=(10, 0), pady=0)
+        box_m.columnconfigure(0, weight=1)
+        box_m.rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(box_m, text="MALLAS",
+                     font=FONT(11, "bold"), text_color=PAL["purple"]
+                     ).pack(anchor="w", padx=24, pady=(20, 4))
+        ctk.CTkFrame(box_m, fg_color=PAL["purple"], height=2
+                     ).pack(fill="x", padx=24, pady=(0, 10))
+
+        self._mallas_box = ctk.CTkScrollableFrame(
+            box_m, fg_color="transparent", corner_radius=0)
+        self._mallas_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self._mallas_box.columnconfigure(0, weight=1)
+        self._mallas_labels = []
+
+        # ── Historial (compacto al fondo) ────────────────────────────────────
+        import tkinter.ttk as _ttk
+        card_hist = ctk.CTkFrame(self, fg_color=PAL["card2"],
+                                  corner_radius=0)
+        card_hist.grid(row=2, column=0, sticky="ew")
+
+        import tkinter as _tk
+        _style = _ttk.Style()
+        _style.configure("Hist.Treeview",
+                         background=PAL["card2"], foreground=PAL["txt_mid"],
+                         fieldbackground=PAL["card2"], rowheight=24,
+                         font=("Segoe UI", 9))
+        _style.configure("Hist.Treeview.Heading",
+                         background=PAL["card2"], foreground=PAL["accent"],
+                         font=("Segoe UI", 8, "bold"), relief="flat")
+        _style.map("Hist.Treeview",
+                   background=[("selected", PAL["accent2"])],
+                   foreground=[("selected", "white")])
+
+        frm_h = ctk.CTkFrame(card_hist, fg_color="transparent")
+        frm_h.pack(fill="x", padx=10, pady=6)
+        self._tree_hist = _ttk.Treeview(
+            frm_h, style="Hist.Treeview",
+            columns=("hora","orden","zfer","vitro","mallas"),
+            show="headings", height=3,
+        )
+        for col, w, lbl in [("hora",65,"Hora"),("orden",95,"Orden"),
+                             ("zfer",95,"ZFER"),("vitro",260,"Vitro"),
+                             ("mallas",340,"Mallas")]:
             self._tree_hist.heading(col, text=lbl)
-            self._tree_hist.column(col, width=w, minwidth=50)
-        self._tree_hist.pack(side="left", fill="both", expand=True)
-        sb2 = _ttk.Scrollbar(frm_hist, orient="vertical",
-                              command=self._tree_hist.yview)
-        sb2.pack(side="right", fill="y")
-        self._tree_hist.configure(yscrollcommand=sb2.set)
+            self._tree_hist.column(col, width=w, minwidth=40)
+        self._tree_hist.pack(side="left", fill="x", expand=True)
+        sb_h = _ttk.Scrollbar(frm_h, orient="vertical",
+                               command=self._tree_hist.yview)
+        sb_h.pack(side="right", fill="y")
+        self._tree_hist.configure(yscrollcommand=sb_h.set)
         self._tree_hist.bind("<Double-1>", self._hist_click)
 
-        # Ocultar panel hasta primer búsqueda
-        self._panel.grid_remove()
+        self._zona.grid_remove()
 
-    def _big_card(self, parent, label, value, color, col):
-        frm = ctk.CTkFrame(parent, fg_color="transparent")
-        frm.grid(row=0, column=col, padx=20, pady=16, sticky="ew")
-        ctk.CTkLabel(frm, text=label, font=FONT(9, "bold"),
-                     text_color=PAL["txt_dim"]).pack(anchor="w")
-        lbl = ctk.CTkLabel(frm, text=value, font=FONT(26, "bold"),
+    def _chip(self, parent, label, value, color, bg, col):
+        frm = ctk.CTkFrame(parent, fg_color=bg, corner_radius=14,
+                            border_width=2, border_color=color)
+        frm.grid(row=0, column=col, sticky="ew",
+                 padx=(0,10) if col==0 else (10,0), pady=(0,16))
+        ctk.CTkLabel(frm, text=label, font=FONT(10, "bold"),
+                     text_color=color).pack(anchor="w", padx=20, pady=(14,0))
+        lbl = ctk.CTkLabel(frm, text=value, font=FONT(34, "bold"),
                            text_color=color)
-        lbl.pack(anchor="w")
+        lbl.pack(anchor="w", padx=20, pady=(0,14))
         return lbl
 
     # ── Lógica ───────────────────────────────────────────────────────────────
@@ -1054,99 +1040,100 @@ class TabScanner(ctk.CTkFrame):
         orden = self._entry.get().strip()
         if not orden:
             return
-        self._btn_buscar.configure(state="disabled")
-        self._lbl_estado.configure(text="Consultando...", text_color=PAL["txt_mid"])
         self._prog.start()
+        self._entry.configure(state="disabled")
         threading.Thread(target=self._t_buscar, args=(orden,), daemon=True).start()
 
     def _t_buscar(self, orden):
         try:
-            # 1) Comercial → ZFER
             cn = _conectar_comercial()
             cur = cn.cursor()
             cur.execute(
                 "SELECT TOP 1 ZFER FROM [dbo].[BI_TAB_FIN_TURNO_SAP] "
-                "WHERE ORDEN = ? AND ZFER IS NOT NULL",
-                (orden,)
-            )
+                "WHERE ORDEN = ? AND ZFER IS NOT NULL", (orden,))
             row = cur.fetchone()
             cn.close()
-
             if not row:
-                self.after(0, self._mostrar_error,
-                           f"Orden {orden} no encontrada en Comercial")
+                self.after(0, self._mostrar_error, f"Orden  {orden}  no encontrada")
                 return
-
             zfer = str(row[0]).strip()
 
-            # 2) SAP Azure → vitro + mallas
             cn2 = _conectar_sap()
             cur2 = cn2.cursor()
             cur2.execute(
                 "SELECT DENOMINACION_COMPONENTE, TEXTO1, TEXTO2 "
-                "FROM ODATA_ZFER_BOM WHERE MATERIAL = ?",
-                (zfer,)
-            )
-            filas_sap = cur2.fetchall()
+                "FROM ODATA_ZFER_BOM WHERE MATERIAL = ?", (zfer,))
+            filas = cur2.fetchall()
             cn2.close()
 
-            mallas = []
-            texto1_set, texto2_set = [], []
-            for comp, t1, t2 in filas_sap:
+            mallas, t1s, t2s = [], [], []
+            for comp, t1, t2 in filas:
                 if comp and str(comp).strip():
                     mallas.append(str(comp).strip())
-                if t1 and str(t1).strip() and str(t1).strip() not in texto1_set:
-                    texto1_set.append(str(t1).strip())
-                if t2 and str(t2).strip() and str(t2).strip() not in texto2_set:
-                    texto2_set.append(str(t2).strip())
+                if t1 and str(t1).strip() and str(t1).strip() not in t1s:
+                    t1s.append(str(t1).strip())
+                if t2 and str(t2).strip() and str(t2).strip() not in t2s:
+                    t2s.append(str(t2).strip())
 
-            vitro1 = " / ".join(texto1_set) or "—"
-            vitro2 = " / ".join(texto2_set)
-
-            self.after(0, self._mostrar_resultado,
-                       orden, zfer, vitro1, vitro2, mallas)
-
+            self.after(0, self._mostrar_resultado, orden, zfer,
+                       " / ".join(t1s) or "—", " / ".join(t2s), mallas)
         except Exception as e:
-            self.after(0, self._mostrar_error, str(e))
+            self.after(0, self._mostrar_error, str(e)[:80])
 
     def _mostrar_resultado(self, orden, zfer, vitro1, vitro2, mallas):
         self._prog.stop(); self._prog.set(0)
-        self._btn_buscar.configure(state="normal")
-        self._lbl_estado.configure(
-            text=f"✔  {len(mallas)} componente(s) encontrado(s)",
-            text_color=PAL["green"]
-        )
+        self._entry.configure(state="normal")
 
-        self._card_orden.configure(text=str(orden))
-        self._card_zfer.configure(text=str(zfer))
-        self._lbl_texto1.configure(text=vitro1)
-        self._lbl_texto2.configure(text=vitro2)
+        self._c_orden.configure(text=str(orden))
+        self._c_zfer.configure(text=str(zfer))
+        self._lbl_vitro.configure(text=vitro1)
+        self._lbl_vitro2.configure(text=vitro2)
 
-        for i in self._tree_mallas.get_children():
-            self._tree_mallas.delete(i)
-        for m in mallas:
-            self._tree_mallas.insert("", "end", values=(m,))
+        for lbl in self._mallas_labels:
+            lbl.destroy()
+        self._mallas_labels.clear()
+        for i, m in enumerate(mallas):
+            bg = PAL["card"] if i % 2 == 0 else PAL["card2"]
+            lbl = ctk.CTkLabel(
+                self._mallas_box, text=f"  {m}",
+                font=FONT(15, "bold"), text_color=PAL["txt"],
+                fg_color=bg, corner_radius=6, anchor="w",
+            )
+            lbl.grid(row=i, column=0, sticky="ew", pady=2)
+            self._mallas_labels.append(lbl)
 
-        # Historial
         hora = time.strftime("%H:%M:%S")
-        mallas_str = " | ".join(mallas[:3]) + (" ..." if len(mallas) > 3 else "")
-        self._tree_hist.insert("", 0, values=(
-            hora, orden, zfer, vitro1[:40], mallas_str[:50]
-        ))
-        # Limitar historial a 50 filas
-        hijos = self._tree_hist.get_children()
-        for h in hijos[50:]:
+        mallas_str = " | ".join(mallas[:4]) + (" ..." if len(mallas) > 4 else "")
+        self._tree_hist.insert("", 0, values=(hora, orden, zfer, vitro1[:45], mallas_str[:60]))
+        for h in self._tree_hist.get_children()[50:]:
             self._tree_hist.delete(h)
 
-        self._panel.grid()
+        self._zona.grid()
         self._entry.delete(0, "end")
         self._entry.focus_set()
 
     def _mostrar_error(self, msg):
         self._prog.stop(); self._prog.set(0)
-        self._btn_buscar.configure(state="normal")
-        self._lbl_estado.configure(text=f"✘  {msg}", text_color=PAL["red"])
+        self._entry.configure(state="normal",
+                               border_color=PAL["red"])
+        self.after(2000, lambda: self._entry.configure(border_color=PAL["accent"]))
         self._entry.select_range(0, "end")
+
+        for lbl in self._mallas_labels:
+            lbl.destroy()
+        self._mallas_labels.clear()
+        err = ctk.CTkLabel(
+            self._mallas_box, text=f"  ✘  {msg}",
+            font=FONT(14, "bold"), text_color=PAL["red"],
+            fg_color=PAL["card"], corner_radius=6, anchor="w",
+        )
+        err.grid(row=0, column=0, sticky="ew", pady=2)
+        self._mallas_labels.append(err)
+        self._c_orden.configure(text="—")
+        self._c_zfer.configure(text="—")
+        self._lbl_vitro.configure(text="No encontrado")
+        self._lbl_vitro2.configure(text="")
+        self._zona.grid()
 
     def _hist_click(self, _):
         sel = self._tree_hist.selection()
@@ -1154,7 +1141,7 @@ class TabScanner(ctk.CTkFrame):
         vals = self._tree_hist.item(sel[0], "values")
         if vals:
             self._entry.delete(0, "end")
-            self._entry.insert(0, vals[1])  # orden
+            self._entry.insert(0, vals[1])
             self._buscar()
 
 
