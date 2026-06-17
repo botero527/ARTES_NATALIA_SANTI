@@ -1218,6 +1218,7 @@ class AGPApp(ctk.CTk):
         for name, icon, cls in self.PAGES:
             f = cls(self._content)
             f.grid(row=0, column=0, sticky="nsew")
+            f.grid_remove()
             self._frames[name] = f
 
         self.bind("<Alt-Key-1>", lambda _: self._show("Crear Arte"))
