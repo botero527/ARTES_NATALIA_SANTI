@@ -523,10 +523,10 @@ class TabArte(ctk.CTkFrame):
                 if prop.get("vitros"):   partes.append("Vitros: "    + ", ".join(prop["vitros"]))
                 if prop.get("grandes"):  partes.append("Mallas G: "  + ", ".join(prop["grandes"]))
                 if prop.get("pequenas"): partes.append("Mallas P: "  + ", ".join(str(c) for c in prop["pequenas"]))
-                mb.showinfo("Separación confirmada",
-                            "Asignado en BD y Excel:\n\n" + "\n".join(partes))
+                messagebox.showinfo("Separación confirmada",
+                            "Asignado en BD:\n\n" + "\n".join(partes))
         except Exception as e:
-            mb.showerror("Error", f"No se pudo abrir el módulo de asignaciones:\n{e}")
+            messagebox.showerror("Error", f"No se pudo abrir el módulo de asignaciones:\n{e}")
 
     def _todo_en_uno(self):
         if not self._validar(): return
@@ -652,11 +652,11 @@ class TabBD(ctk.CTkFrame):
                       ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable"],
                       ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable"]),
         "grandes":   ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,responsable "
-                      "FROM mallas.grandes {where} ORDER BY TRY_CAST(SUBSTRING(codigo,3,50) AS INT)",
+                      "FROM mallas.grandes {where} ORDER BY TRY_CAST(SUBSTRING(codigo,3,50) AS INT) DESC",
                       ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Responsable"],
                       ["codigo","cod_veh","descripcion","pieza","tipo","version","responsable"]),
         "pequenas":  ("SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,responsable "
-                      "FROM mallas.pequenas {where} ORDER BY TRY_CAST(codigo AS INT)",
+                      "FROM mallas.pequenas {where} ORDER BY TRY_CAST(codigo AS INT) DESC",
                       ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Responsable"],
                       ["codigo","cod_veh","descripcion","pieza","tipo","version","responsable"]),
         "vinilos":   ("SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo "
@@ -816,7 +816,7 @@ class TabBD(ctk.CTkFrame):
         q   = self._search.get().strip()
         tab = self._tab
         sql_tpl, headers, fields = self.QUERIES[tab]
-        limit = 100
+        limit = 300
         # Limpiar tree siempre antes de la query — nunca mostrar datos de otro tab
         self.after(0, lambda: [self._tree.delete(i) for i in self._tree.get_children()])
         try:
@@ -843,7 +843,7 @@ class TabBD(ctk.CTkFrame):
             self._tree.insert("","end", values=vals)
         n = len(rows)
         self._lbl_count.configure(
-            text=f"{n} resultado{'s' if n!=1 else ''}  (máx. 100)",
+            text=f"{n} resultado{'s' if n!=1 else ''}  (máx. 300 — busca para filtrar)",
             text_color=PAL["txt_dim"])
 
     def _load_stats(self):

@@ -184,21 +184,21 @@ def confirmar(reserva, vehiculo="", version="", pieza="", cod_vehiculo="",
             cur.execute(
                 "UPDATE mallas.grandes SET "
                 "estado='ASIGNADO', cod_veh=?, descripcion=?, pieza=?, tipo=?, "
-                "version=?, concatenar=?, responsable=?, updated_at=GETDATE() "
+                "version=?, concatenar=?, ruta_dwg=?, responsable=?, updated_at=GETDATE() "
                 "WHERE codigo=?",
                 (_val(cod_vehiculo), _val(vehiculo), _val(pieza),
                  _val(tipo) or "S", _val(version),
-                 _val(concat), _val(responsable), g))
+                 _val(concat), _val(ruta_archivo), _val(responsable), g))
 
         for p in reserva.get("pequenas", []):
             cur.execute(
                 "UPDATE mallas.pequenas SET "
                 "estado='ASIGNADO', cod_veh=?, descripcion=?, pieza=?, tipo=?, "
-                "version=?, concatenar=?, responsable=?, updated_at=GETDATE() "
+                "version=?, concatenar=?, ruta_dwg=?, responsable=?, updated_at=GETDATE() "
                 "WHERE codigo=?",
                 (_val(cod_vehiculo), _val(vehiculo), _val(pieza),
                  _val(tipo) or "S", _val(version),
-                 _val(concat), _val(responsable), p))
+                 _val(concat), _val(ruta_archivo), _val(responsable), p))
 
         cn.commit()
         return reserva
@@ -514,11 +514,20 @@ def dialogo_separar(parent_win=None):
     _sec("RESPONSABLE")
     v_resp = _row("Nombre responsable *", req=True)
 
-    pf  = tk.Frame(win, bg=C["panel"], padx=16, pady=10)
+    # Panel resultado — visible siempre (vacío al inicio, lleno tras confirmar)
+    pf = tk.Frame(win, bg=C["panel"], padx=16, pady=14)
     pf.pack(fill="x", padx=24, pady=(8, 2))
-    plbl = tk.Label(pf, text="", font=("Segoe UI", 9),
-                    fg=C["muted"], bg=C["panel"], wraplength=440, justify="left")
-    plbl.pack(anchor="w")
+    plbl_titulo = tk.Label(pf, text="", font=("Segoe UI", 11, "bold"),
+                           fg=C["green"], bg=C["panel"])
+    plbl_titulo.pack(anchor="w")
+    plbl = tk.Label(pf, text="", font=("Segoe UI", 13, "bold"),
+                    fg=C["text"], bg=C["panel"], wraplength=440, justify="left")
+    plbl.pack(anchor="w", pady=(4, 0))
+    plbl_sub = tk.Label(pf, text="", font=("Segoe UI", 9),
+                        fg=C["muted"], bg=C["panel"])
+    plbl_sub.pack(anchor="w")
+
+    btn_confirmar_ref = [None]
 
     def _hacer_confirmar():
         faltantes = []
@@ -536,7 +545,10 @@ def dialogo_separar(parent_win=None):
             messagebox.showwarning("Sin cantidad", "Indica al menos 1 vitro o malla.")
             return
 
-        plbl.configure(text="Reservando y guardando...", fg=C["muted"]); win.update()
+        plbl_titulo.configure(text="Guardando...", fg=C["muted"])
+        plbl.configure(text="")
+        plbl_sub.configure(text="")
+        win.update()
         try:
             res = reservar(nv.get(), ng.get(), np_.get())
             prop_real = _do_confirmar(
@@ -552,20 +564,33 @@ def dialogo_separar(parent_win=None):
                 responsable  = v_resp.get().strip(),
             )
             resultado[0] = prop_real
+
+            # Construir texto del resultado
             lineas = []
             if prop_real["vitros"]:
-                lineas.append("Vitros:    " + "  ".join(prop_real["vitros"]))
+                lineas.append("Vitro:     " + "   ".join(prop_real["vitros"]))
             if prop_real["grandes"]:
-                lineas.append("Mallas G:  " + "  ".join(prop_real["grandes"]))
+                lineas.append("Malla G:   " + "   ".join(prop_real["grandes"]))
             if prop_real["pequenas"]:
-                lineas.append("Mallas P:  " + "  ".join(str(c) for c in prop_real["pequenas"]))
-            plbl.configure(text="Guardado:\n" + "\n".join(lineas), fg=C["green"])
-            win.after(2200, win.destroy)
+                lineas.append("Malla P:   " + "   ".join(str(c) for c in prop_real["pequenas"]))
+
+            plbl_titulo.configure(text="✔  Asignacion guardada en BD", fg=C["green"])
+            plbl.configure(text="\n".join(lineas), fg=C["text"])
+            plbl_sub.configure(
+                text=f"Vehiculo: {v_veh.get().strip()}  |  Version: {v_ver.get().strip()}  |  "
+                     f"Responsable: {v_resp.get().strip()}",
+                fg=C["muted"])
+
+            # Deshabilitar boton confirmar, habilitar Nuevo / Cerrar
+            if btn_confirmar_ref[0]:
+                btn_confirmar_ref[0].configure(state="disabled", bg="#1A1C2A")
         except Exception as e:
-            plbl.configure(text=f"Error: {e}", fg=C["red"])
+            plbl_titulo.configure(text="Error al guardar", fg=C["red"])
+            plbl.configure(text=str(e), fg=C["red"])
+            plbl_sub.configure(text="")
 
     def cancel():
-        win.destroy()  # separar no reservo nada antes de confirmar -> nada que cancelar
+        win.destroy()
 
     win.protocol("WM_DELETE_WINDOW", cancel)
     bf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); bf.pack(fill="x")
@@ -579,8 +604,16 @@ def dialogo_separar(parent_win=None):
         b.bind("<Leave>", lambda _: b.configure(bg=bg))
         b.pack(side="left", padx=(0, 8))
 
-    _btn("Confirmar separacion", _hacer_confirmar, C["accent"], C["accent2"])
-    _btn("Cancelar",             cancel,           "#2A2A3A",  "#3A3A4A")
+    b_conf = tk.Button(bf, text="Confirmar separacion", command=_hacer_confirmar,
+                       bg=C["accent"], fg="#FFF", activebackground=C["accent2"],
+                       activeforeground="#FFF", relief="flat", bd=0,
+                       font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2")
+    b_conf.bind("<Enter>", lambda _: b_conf.configure(bg=C["accent2"]) if str(b_conf["state"]) != "disabled" else None)
+    b_conf.bind("<Leave>", lambda _: b_conf.configure(bg=C["accent"])  if str(b_conf["state"]) != "disabled" else None)
+    b_conf.pack(side="left", padx=(0, 8))
+    btn_confirmar_ref[0] = b_conf
+
+    _btn("Cerrar", cancel, "#2A2A3A", "#3A3A4A")
 
     win.bind("<Escape>", lambda _: cancel())
     win.update_idletasks()

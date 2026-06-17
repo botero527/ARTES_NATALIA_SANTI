@@ -25,8 +25,8 @@ CONN_STR = (
     "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
 )
 
-MAX_VACIAS  = 15       # filas consecutivas vacías = fin real de datos
-MAX_FILAS   = 60_000  # tope absoluto anti-formato-fantasma (openpyxl read_only)
+MAX_VACIAS  = 500      # filas consecutivas col-A-vacía = fin real de datos
+MAX_FILAS   = 2_000_000  # tope de seguridad extremo — nunca debería alcanzarse
 CHUNK       = 150   # filas por lote en VALUES batch (límite 2100 params SQL Server)
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -57,18 +57,30 @@ def conectar():
             continue
     raise RuntimeError("No se pudo conectar — instala ODBC Driver 17/18.")
 
+def _normalizar(s):
+    """Normaliza para comparar nombres de hojas ignorando encoding de Ñ/tildes."""
+    return (s.upper().strip()
+             .replace('\xd1', 'N').replace('\xc3\xb1', 'N')
+             .replace('Ñ', 'N').replace('?', 'N'))
+
 def _hoja(wb, *candidatos):
-    nombres = {k.upper().strip(): k for k in wb.sheetnames}
+    nombres_norm = {_normalizar(k): k for k in wb.sheetnames}
     for c in candidatos:
         if c in wb.sheetnames:
             return wb[c]
-        if c.upper().strip() in nombres:
-            return wb[nombres[c.upper().strip()]]
+        norm = _normalizar(c)
+        if norm in nombres_norm:
+            return wb[nombres_norm[norm]]
     raise KeyError(f"No se encontró ninguna de: {candidatos}")
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  Motor principal
 # ─────────────────────────────────────────────────────────────────────────────
+
+def _fila_blanca(row):
+    """Fila completamente vacía (columna A sin valor). Única que cuenta como 'vacía' para cortar."""
+    return not row or row[0] is None or str(row[0]).strip() == ""
+
 
 def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
     """
@@ -88,13 +100,15 @@ def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
         if n_leidas > MAX_FILAS:
             log(f"  WARN {nombre}: se alcanzó límite de {MAX_FILAS} filas — revisar Excel", "warn")
             break
-        params = build_row_fn(row)
-        if params is None:
+        if _fila_blanca(row):
             vacias += 1
             if vacias >= MAX_VACIAS:
                 break
             continue
-        vacias = 0
+        vacias = 0  # reset en cuanto hay algo en col A
+        params = build_row_fn(row)
+        if params is None:
+            continue  # filtrada por calidad, pero NO cuenta como vacía
         if pk_index is None:
             sin_pk.append(params)
         else:
@@ -192,12 +206,15 @@ def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
 #  Motor MERGE (no borra asignados)
 # ─────────────────────────────────────────────────────────────────────────────
 
-def _bulk_sync_merge(nombre, ws, tabla, pk_col, columnas, build_row_fn):
+def _bulk_sync_merge(nombre, ws, tabla, pk_col, columnas, build_row_fn, preservar_cond=None):
     """
-    UPSERT seguro: inserta filas nuevas y actualiza las que estén en el Excel,
-    EXCEPTO las que ya tienen vehiculo/descripcion llenos en BD (ya asignadas).
-    Nunca borra nada.
+    UPSERT rápido: bulk INSERT nuevos + bulk UPDATE existentes.
+    EXCEPTO filas protegidas (estado=ASIGNADO del sistema de reservas).
+    Nunca borra nada. Usa fast_executemany para mínimos round-trips a Azure.
     """
+    if preservar_cond is None:
+        preservar_cond = "estado = 'ASIGNADO'"
+
     log(f"Leyendo {nombre} del Excel (modo MERGE)...")
     t0 = time.time()
     visto = {}
@@ -209,14 +226,16 @@ def _bulk_sync_merge(nombre, ws, tabla, pk_col, columnas, build_row_fn):
         if n_leidas > MAX_FILAS:
             log(f"  WARN {nombre}: se alcanzó límite de {MAX_FILAS} filas — revisar Excel", "warn")
             break
-        params = build_row_fn(row)
-        if params is None:
+        if _fila_blanca(row):
             vacias += 1
             if vacias >= MAX_VACIAS:
                 break
             continue
-        vacias = 0
-        visto[params[0]] = params   # pk siempre en índice 0
+        vacias = 0  # reset en cuanto hay algo en col A
+        params = build_row_fn(row)
+        if params is None:
+            continue  # filtrada por calidad, pero NO cuenta como vacía
+        visto[params[0]] = params
 
     filas = list(visto.values())
     log(f"  {nombre}: {len(filas)} filas leídas ({time.time()-t0:.1f}s)")
@@ -225,49 +244,90 @@ def _bulk_sync_merge(nombre, ws, tabla, pk_col, columnas, build_row_fn):
         log(f"  {nombre}: sin datos — omitido", "warn")
         return 0, 0
 
-    # Obtener PKs ya asignados en BD (vehiculo/descripcion no NULL)
     cn = conectar()
     try:
         cur = cn.cursor()
-        # Determinar columna de "asignado" según tabla
-        if "vitrojet" in tabla:
-            cur.execute(f"SELECT {pk_col} FROM {tabla} WHERE vehiculo IS NOT NULL")
-        else:
-            cur.execute(f"SELECT {pk_col} FROM {tabla} WHERE descripcion IS NOT NULL")
-        asignados = {str(r[0]).strip() for r in cur.fetchall()}
 
-        # Construir placeholders
+        # 1. PKs protegidos (una sola consulta)
+        cur.execute(f"SELECT {pk_col} FROM {tabla} WHERE {preservar_cond}")
+        protegidos = {str(r[0]).strip() for r in cur.fetchall()}
+
+        # 2. PKs existentes en BD (una sola consulta)
+        cur.execute(f"SELECT {pk_col} FROM {tabla}")
+        existentes = {str(r[0]).strip() for r in cur.fetchall()}
+
+        # 3. Separar en nuevos (INSERT) vs existentes no protegidos (UPDATE)
+        a_insertar = []
+        a_actualizar = []
+        saltados = 0
+        for f in filas:
+            pk_val = str(f[0]).strip()
+            if pk_val in protegidos:
+                saltados += 1
+            elif pk_val in existentes:
+                a_actualizar.append(f)
+            else:
+                a_insertar.append(f)
+
         cols_str = ", ".join(columnas)
         ph_str   = ", ".join(["?"] * len(columnas))
         upd_cols = [c for c in columnas if c != pk_col]
         upd_str  = ", ".join(f"{c}=?" for c in upd_cols)
 
-        ok = err = saltados = 0
-        for f in filas:
-            pk_val = str(f[0]).strip()
-            if pk_val in asignados:
-                saltados += 1
-                continue
+        ok = err = 0
+
+        # 4. Bulk INSERT (multi-row VALUES, igual que _bulk_sync — muy rápido)
+        if a_insertar:
+            val_tpl  = f"({ph_str})"
+            n_lotes  = -(-len(a_insertar) // CHUNK)
+            for i in range(0, len(a_insertar), CHUNK):
+                lote = a_insertar[i:i + CHUNK]
+                rows_sql  = ",".join([val_tpl] * len(lote))
+                sql_multi = f"INSERT INTO {tabla} ({cols_str}) VALUES {rows_sql}"
+                params    = []
+                for f in lote:
+                    params.extend(f)
+                try:
+                    cur.execute(sql_multi, params)
+                    ok += len(lote)
+                except Exception as e:
+                    # fila a fila como fallback
+                    for f in lote:
+                        try:
+                            cur.execute(f"INSERT INTO {tabla} ({cols_str}) VALUES ({ph_str})", list(f))
+                            ok += 1
+                        except Exception as e2:
+                            err += 1
+                            if err <= 3:
+                                log(f"    insert error {f[0]}: {str(e2)[:60]}", "warn")
+
+        # 5. Bulk UPDATE con fast_executemany (un lote por conexión, muy rápido)
+        if a_actualizar:
+            sql_upd = f"UPDATE {tabla} SET {upd_str} WHERE {pk_col}=?"
+            cur.fast_executemany = True
+            params_upd = [
+                [f[i] for i, c in enumerate(columnas) if c != pk_col] + [f[0]]
+                for f in a_actualizar
+            ]
             try:
-                # Intentar UPDATE primero; si no afecta filas → INSERT
-                upd_vals = [f[i] for i, c in enumerate(columnas) if c != pk_col]
-                cur.execute(
-                    f"UPDATE {tabla} SET {upd_str} WHERE {pk_col}=?",
-                    upd_vals + [f[0]]
-                )
-                if cur.rowcount == 0:
-                    cur.execute(
-                        f"INSERT INTO {tabla} ({cols_str}) VALUES ({ph_str})",
-                        list(f)
-                    )
-                ok += 1
+                cur.executemany(sql_upd, params_upd)
+                ok += len(a_actualizar)
             except Exception as e:
-                err += 1
-                if err <= 3:
-                    log(f"    error {pk_val}: {str(e)[:60]}", "warn")
+                cur.fast_executemany = False
+                log(f"  {nombre}: UPDATE bulk falló, fila a fila ({str(e)[:50]})...", "warn")
+                for f in a_actualizar:
+                    try:
+                        upd_vals = [f[i] for i, c in enumerate(columnas) if c != pk_col]
+                        cur.execute(sql_upd, upd_vals + [f[0]])
+                        ok += 1
+                    except Exception as e2:
+                        err += 1
+                        if err <= 3:
+                            log(f"    update error {f[0]}: {str(e2)[:60]}", "warn")
 
         cn.commit()
-        log(f"  {nombre}: {ok:,} actualizados | {saltados} preservados | {err} errores",
+        log(f"  {nombre}: {ok:,} ok ({len(a_insertar)} nuevos, {len(a_actualizar)} actualizados) "
+            f"| {saltados} protegidos | {err} errores",
             "ok" if err == 0 else "warn")
         return ok, err
     finally:
@@ -288,16 +348,22 @@ def importar_vitrojet(ws):
         vitro = clean(r[0], 30)
         if not vitro:
             return None
-        malla = clean(r[1], 30) if len(r) > 1 else None
-        tipo  = "G" if malla and str(malla).upper().startswith("A-") else "P"
+        malla    = clean(r[1], 30)  if len(r) > 1 else None
+        vehiculo = clean(r[4], 200) if len(r) > 4 else None
+        # Saltar filas con solo vitro y nada más (son reservas del sistema, no datos reales del Excel)
+        if not any([malla, vehiculo,
+                    clean(r[2], 100) if len(r) > 2 else None,
+                    clean(r[5], 100) if len(r) > 5 else None]):
+            return None
+        tipo = "G" if malla and str(malla).upper().startswith("A-") else "P"
         return (
             vitro, malla, tipo,
             clean(r[2], 100)  if len(r) > 2 else None,  # cod_completo
             clean(r[3], 20)   if len(r) > 3 else None,  # bnerig
-            clean(r[4], 200)  if len(r) > 4 else None,  # vehiculo
+            vehiculo,
             clean(r[5], 100)  if len(r) > 5 else None,  # version
             clean(r[6], 500)  if len(r) > 6 else None,  # ruta
-            'excel',                                      # cambio — debe ir aquí para que columnas[8] mapee correctamente
+            'excel',
         )
     # Preservar asignaciones ya existentes: no borrar, hacer MERGE por vitro
     return _bulk_sync_merge("VITROJET", ws, "mallas.vitrojet", "vitro",
@@ -307,34 +373,33 @@ def importar_vitrojet(ws):
 
 
 def importar_grandes(ws):
-    sql_i = (
-        "INSERT INTO mallas.grandes "
-        "(codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,cambio) "
-        "VALUES (?,?,?,?,?,?,?,'excel')"
-    )
     def build(r):
         c = clean(r[0], 30)
         if not c:
             return None
+        desc = clean(r[2], 200) if len(r) > 2 else None
+        cod  = clean(r[1], 30)  if len(r) > 1 else None
+        if not any([desc, cod,
+                    clean(r[3], 100) if len(r) > 3 else None,
+                    clean(r[5], 100) if len(r) > 5 else None]):
+            return None
         return (
             c,
-            clean(r[1], 30)   if len(r) > 1 else None,
-            clean(r[2], 200)  if len(r) > 2 else None,
+            cod,
+            desc,
             clean(r[3], 100)  if len(r) > 3 else None,
             clean(r[4], 20)   if len(r) > 4 else None,
             clean(r[5], 100)  if len(r) > 5 else None,
             clean(r[6], 300)  if len(r) > 6 else None,
+            'excel',
         )
-    return _bulk_sync("MALLAS GRANDES", ws,
-                      "DELETE FROM mallas.grandes", sql_i, build)
+    return _bulk_sync_merge("MALLAS GRANDES", ws, "mallas.grandes", "codigo",
+                            ["codigo","cod_veh","descripcion","pieza","tipo",
+                             "version","concatenar","cambio"],
+                            build)
 
 
 def importar_pequenas(ws):
-    sql_i = (
-        "INSERT INTO mallas.pequenas "
-        "(codigo,cod_veh,descripcion,pieza,tipo,version,concatenar,part_number,cambio) "
-        "VALUES (?,?,?,?,?,?,?,?,'excel')"
-    )
     def build(r):
         raw = clean(r[0])
         if not raw:
@@ -343,71 +408,82 @@ def importar_pequenas(ws):
             codigo = int(float(raw))
         except Exception:
             return None
-        # Requiere descripción para filtrar ghost rows con solo número en col A
         desc = clean(r[2], 200) if len(r) > 2 else None
         if not desc:
             return None
         return (
             codigo,
-            clean(r[1], 30) if len(r) > 1 else None,
+            clean(r[1], 30)  if len(r) > 1 else None,
             desc,
             clean(r[3], 100) if len(r) > 3 else None,
             clean(r[4], 20)  if len(r) > 4 else None,
             clean(r[5], 100) if len(r) > 5 else None,
             clean(r[6], 300) if len(r) > 6 else None,
             clean(r[7], 100) if len(r) > 7 else None,
+            'excel',
         )
-    return _bulk_sync("MALLAS PEQUEÑAS", ws,
-                      "DELETE FROM mallas.pequenas", sql_i, build)
+    return _bulk_sync_merge("MALLAS PEQUEÑAS", ws, "mallas.pequenas", "codigo",
+                            ["codigo","cod_veh","descripcion","pieza","tipo",
+                             "version","concatenar","part_number","cambio"],
+                            build)
 
 
 def importar_pasta_plata(ws):
-    sql_i = (
-        "INSERT INTO mallas.pasta_plata "
-        "(consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,ruta_archivo,caso,cambio) "
-        "VALUES (?,?,?,?,?,?,?,?,'excel')"
-    )
     def build(r):
         c = clean(r[0], 30)
         if not c:
             return None
+        vehiculo = clean(r[2], 200)
+        tipo     = clean(r[1], 20)
+        if not any([vehiculo, tipo,
+                    clean(str(r[3]), 30)  if r[3] is not None else None,
+                    clean(str(r[4]), 100) if r[4] is not None else None]):
+            return None
         return (
             c,
-            clean(r[1], 20),
-            clean(r[2], 200),
+            tipo,
+            vehiculo,
             clean(str(r[3]), 30)  if r[3] is not None else None,
             clean(str(r[4]), 100) if r[4] is not None else None,
             clean(str(r[5]), 100) if r[5] is not None else None,
             clean(r[6], 500)      if len(r) > 6 else None,
             clean(r[7], 200)      if len(r) > 7 else None,
+            'excel',
         )
-    return _bulk_sync("PASTA DE PLATA", ws,
-                      "DELETE FROM mallas.pasta_plata", sql_i, build)
+    return _bulk_sync_merge("PASTA DE PLATA", ws, "mallas.pasta_plata", "consecutivo",
+                            ["consecutivo","tipo","vehiculo","cod_vehiculo",
+                             "version","pieza","ruta_archivo","caso","cambio"],
+                            build,
+                            preservar_cond="1=0")  # pasta_plata no tiene sistema de reservas
 
 
 def importar_vinilos(ws):
-    sql_i = (
-        "INSERT INTO mallas.vinilos "
-        "(herramental,vehiculo,cod_vehiculo,version,pieza,tipo,cambio) "
-        "VALUES (?,?,?,?,?,?,'excel')"
-    )
     def build(r):
         h = clean(r[0], 30)
         if not h:
+            return None
+        vehiculo = clean(r[1], 200) if len(r) > 1 else None
+        if not any([vehiculo,
+                    clean(str(r[2]), 30)  if len(r) > 2 and r[2] is not None else None,
+                    clean(str(r[3]), 100) if len(r) > 3 and r[3] is not None else None]):
             return None
         tipo = clean(r[5], 20) if len(r) > 5 else None
         if tipo == "BN2":
             tipo = "BN"
         return (
             h,
-            clean(r[1], 200),
-            clean(str(r[2]), 30)  if r[2] is not None else None,
-            clean(str(r[3]), 100) if r[3] is not None else None,
-            clean(str(r[4]), 100) if r[4] is not None else None,
+            vehiculo,
+            clean(str(r[2]), 30)  if len(r) > 2 and r[2] is not None else None,
+            clean(str(r[3]), 100) if len(r) > 3 and r[3] is not None else None,
+            clean(str(r[4]), 100) if len(r) > 4 and r[4] is not None else None,
             tipo,
+            'excel',
         )
-    return _bulk_sync("VINILOS", ws,
-                      "DELETE FROM mallas.vinilos", sql_i, build)
+    return _bulk_sync_merge("VINILOS", ws, "mallas.vinilos", "herramental",
+                            ["herramental","vehiculo","cod_vehiculo","version",
+                             "pieza","tipo","cambio"],
+                            build,
+                            preservar_cond="1=0")  # vinilos no tiene sistema de reservas
 
 
 def importar_glassjet_viejo(ws):
@@ -462,15 +538,29 @@ def main(log_fn=None):
         return False
     log("Conexión OK\n")
 
+    TAREAS = [
+        ("VITROJET",      importar_vitrojet,      ["VITROJET"]),
+        ("GRANDES",       importar_grandes,        ["GRANDES"]),
+        ("PEQUEÑAS",      importar_pequenas,       ["PEQUEÑAS", "PEQUE\xd1AS", "PEQUENAS", "PEQUE?AS"]),
+        ("PASTA DE PLATA",importar_pasta_plata,    ["PASTA DE PLATA"]),
+        ("GLASSJET VIEJO",importar_glassjet_viejo, ["GLASSJET VIEJO NO ALIMENTAR INV", "GLASSJET VIEJO"]),
+        ("VINILOS",       importar_vinilos,        ["VINILOS"]),
+    ]
+
     errores_total = 0
     try:
-        _, e = importar_vitrojet(   _hoja(wb, "VITROJET"));               errores_total += e
-        _, e = importar_grandes(    _hoja(wb, "GRANDES"));                 errores_total += e
-        _, e = importar_pequenas(   _hoja(wb, "PEQUEÑAS", "PEQUENAS"));    errores_total += e
-        _, e = importar_pasta_plata(_hoja(wb, "PASTA DE PLATA"));          errores_total += e
-        _, e = importar_glassjet_viejo(
-            _hoja(wb, "GLASSJET VIEJO NO ALIMENTAR INV", "GLASSJET VIEJO")); errores_total += e
-        _, e = importar_vinilos(    _hoja(wb, "VINILOS"));                 errores_total += e
+        for nombre_tarea, fn, candidatos in TAREAS:
+            try:
+                ws_hoja = _hoja(wb, *candidatos)
+            except KeyError:
+                log(f"  WARN: hoja '{nombre_tarea}' no encontrada en el Excel — omitida", "warn")
+                continue
+            try:
+                _, e = fn(ws_hoja)
+                errores_total += e
+            except Exception as ex:
+                log(f"  ERROR en {nombre_tarea}: {ex}", "err")
+                errores_total += 1
 
         log(f"\n=== Completado en {time.time()-t0:.0f}s ===",
             "ok" if errores_total == 0 else "warn")
