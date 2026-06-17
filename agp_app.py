@@ -115,7 +115,7 @@ def _ruta_planos(ruta_dwg):
     os.makedirs(dest, exist_ok=True)
     return dest
 
-def _ruta_arte_salida(ruta_dwg, malla="", pieza=""):
+def _ruta_arte_salida(ruta_dwg, malla="", pieza="", nombre_archivo=""):
     artes = os.path.join(os.path.dirname(os.path.abspath(ruta_dwg)), "ARTES")
     os.makedirs(artes, exist_ok=True)
     dest = artes
@@ -124,9 +124,12 @@ def _ruta_arte_salida(ruta_dwg, malla="", pieza=""):
             if os.path.isdir(os.path.join(artes, e)) and e.upper() == "BN":
                 dest = os.path.join(artes, e); break
     except Exception: pass
-    partes = [p.strip() for p in [malla, pieza] if p.strip()]
-    nombre = ("P " + " ".join(partes) if partes else
-              "P " + os.path.splitext(os.path.basename(ruta_dwg))[0]) + ".dwg"
+    if nombre_archivo:
+        nombre = nombre_archivo if nombre_archivo.lower().endswith(".dwg") else nombre_archivo + ".dwg"
+    else:
+        partes = [p.strip() for p in [malla, pieza] if p.strip()]
+        nombre = ("P " + " ".join(partes) if partes else
+                  "P " + os.path.splitext(os.path.basename(ruta_dwg))[0]) + ".dwg"
     while "  " in nombre: nombre = nombre.replace("  ", " ")
     return os.path.join(dest, nombre)
 
@@ -320,18 +323,6 @@ class TabArte(ctk.CTkFrame):
                         checkmark_color="white", corner_radius=4,
                         ).pack(side="left", padx=6)
 
-        # Separar — botón resaltado en naranja
-        sep_row = ctk.CTkFrame(card_wf, fg_color="#1A1000", corner_radius=10,
-                               border_width=2, border_color="#FF9500")
-        sep_row.pack(fill="x", padx=0, pady=(8, 4))
-        ctk.CTkLabel(sep_row, text="¿Necesitas vitro/malla sin crear arte?",
-                     font=FONT(10), text_color="#FF9500").pack(side="left", padx=12, pady=6)
-        ctk.CTkButton(sep_row, text="📌  Separar vitro / malla",
-                      font=FONT(11, "bold"), height=32, corner_radius=8,
-                      fg_color="#FF9500", hover_color="#CC7700",
-                      text_color="white",
-                      command=self._separar_vitro_malla,
-                      ).pack(side="right", padx=8, pady=6)
 
         self._prog = ctk.CTkProgressBar(card_wf, mode="indeterminate",
                                          height=4, progress_color=PAL["accent"])
@@ -467,16 +458,38 @@ class TabArte(ctk.CTkFrame):
         dwg = self._ruta_dwg.get().strip().strip('"')
         if not os.path.isfile(dwg):
             messagebox.showwarning("Campo requerido","Selecciona el DWG del plano."); return
+        nombre = os.path.splitext(os.path.basename(dwg))[0]
+        if _PIPELINE_OK:
+            valores = dialogo_cajetin(nombre)
+        else:
+            valores = {}
+        if valores is None: return
+        malla        = valores.get("MALLA","").strip()
+        pieza        = valores.get("PIEZA","").strip()
+        nombre_arte  = valores.get("NOMBRE ARTE","").strip()
+        arte0  = _ruta_arte_salida(dwg, malla, pieza, nombre_arte)
         self._busy(True)
-        threading.Thread(target=self._t_crear, args=(dwg,), daemon=True).start()
+        threading.Thread(target=self._t_crear, args=(dwg, valores, arte0), daemon=True).start()
 
-    def _t_crear(self, dwg):
+    def _t_crear(self, dwg, valores, arte0):
         self._log_fn("="*50)
         self._log_fn("CREAR ARTE...", "ok")
         try:
             _crear_arte_autocad(dwg, log_fn=lambda m: self._log_fn(m,"dim"),
+                                valores_cajetin=valores, ruta_salida=arte0,
                                 compensar=self._compensar.get())
-            self._log_fn("Arte completado.", "ok")
+            self._log_fn(f"Arte completado ✔  {os.path.basename(arte0)}", "ok")
+
+            # Actualizar ruta real en BD
+            vitro_bd = valores.get("VITRO","").strip()
+            malla_bd = valores.get("MALLA","").strip()
+            if vitro_bd or malla_bd:
+                try:
+                    from db_app.asignaciones import actualizar_ruta_arte
+                    actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
+                    self._log_fn("Ruta guardada en BD ✔", "dim")
+                except Exception as _re:
+                    self._log_fn(f"WARN ruta BD: {_re}", "warn")
         except Exception as e:
             self._log_fn(str(e), "err")
         finally:
@@ -505,29 +518,6 @@ class TabArte(ctk.CTkFrame):
             self._tree.insert("","end", values=(r["version"],r["archivo"],ext), tags=("match",))
         self._lbl_tbl.configure(text=f"{len(res)} resultado{'s' if len(res)!=1 else ''}")
 
-    def _separar_vitro_malla(self):
-        """Abre el diálogo de separación manual de vitro/malla."""
-        try:
-            try:
-                from db_app.asignaciones import dialogo_separar
-            except ImportError:
-                import sys as _sys, os as _os
-                _sys.path.insert(0, _os.path.join(_os.path.dirname(__file__), "db_app"))
-                from asignaciones import dialogo_separar
-
-            import tkinter as _tk
-            root_tk = _tk._default_root
-            prop = dialogo_separar(parent_win=root_tk)
-            if prop:
-                partes = []
-                if prop.get("vitros"):   partes.append("Vitros: "    + ", ".join(prop["vitros"]))
-                if prop.get("grandes"):  partes.append("Mallas G: "  + ", ".join(prop["grandes"]))
-                if prop.get("pequenas"): partes.append("Mallas P: "  + ", ".join(str(c) for c in prop["pequenas"]))
-                messagebox.showinfo("Separación confirmada",
-                            "Asignado en BD:\n\n" + "\n".join(partes))
-        except Exception as e:
-            messagebox.showerror("Error", f"No se pudo abrir el módulo de asignaciones:\n{e}")
-
     def _todo_en_uno(self):
         if not self._validar(): return
         dwg    = self._ruta_dwg.get().strip().strip('"')
@@ -537,12 +527,14 @@ class TabArte(ctk.CTkFrame):
         else:
             valores = {}
         if valores is None: return
+        malla       = valores.get("MALLA","").strip()
+        pieza       = valores.get("PIEZA","").strip()
+        nombre_arte = valores.get("NOMBRE ARTE","").strip()
+        arte0       = _ruta_arte_salida(dwg, malla, pieza, nombre_arte)
         self._busy(True)
-        threading.Thread(target=self._t_todo, args=(dwg, valores), daemon=True).start()
+        threading.Thread(target=self._t_todo, args=(dwg, valores, arte0), daemon=True).start()
 
-    def _t_todo(self, dwg, valores):
-        malla = valores.get("MALLA","").strip()
-        pieza = valores.get("PIEZA","").strip()
+    def _t_todo(self, dwg, valores, arte0):
         self._log_fn("="*50)
         self._log_fn("TODO EN UNO...", "ok")
 
@@ -553,7 +545,6 @@ class TabArte(ctk.CTkFrame):
 
         nombre = os.path.splitext(os.path.basename(dwg))[0]
         plano  = os.path.join(_ruta_planos(dwg), f"{nombre}_PLANO.dwg")
-        arte0  = _ruta_arte_salida(dwg, malla, pieza)
 
         # Un único CoInitialize para todo el proceso en este hilo
         pythoncom.CoInitialize()
@@ -574,9 +565,22 @@ class TabArte(ctk.CTkFrame):
                                     compensar=self._compensar.get())
             self._log_fn(f"Arte guardado ✔  {os.path.basename(arte0)}", "ok")
 
+            # Actualizar ruta real del arte en BD (el cajetin confirmo con ruta="" porque aun no existia)
+            vitro_bd = valores.get("VITRO","").strip()
+            malla_bd = valores.get("MALLA","").strip()
+            if vitro_bd or malla_bd:
+                try:
+                    from db_app.asignaciones import actualizar_ruta_arte
+                    actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
+                    self._log_fn("Ruta guardada en BD ✔", "dim")
+                except Exception as _re:
+                    self._log_fn(f"WARN ruta BD: {_re}", "warn")
+
+            _malla_bd = valores.get("MALLA","").strip()
+            _pieza_bd = valores.get("PIEZA","").strip()
             for i in range(1, n or 1):
                 copia  = plano.replace("_PLANO.dwg", f"_PLANO_p{i+1}.dwg")
-                arte_i = _ruta_arte_salida(dwg, malla, f"{pieza} {i+1}".strip())
+                arte_i = _ruta_arte_salida(dwg, _malla_bd, f"{_pieza_bd} {i+1}".strip())
                 try:
                     shutil.copy2(plano, copia)
                     _crear_arte_autocad(copia, log_fn=lambda m: self._log_fn(m, "dim"),
@@ -660,11 +664,11 @@ class TabBD(ctk.CTkFrame):
                       ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Responsable"],
                       ["codigo","cod_veh","descripcion","pieza","tipo","version","responsable"]),
         "vinilos":   ("SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo "
-                      "FROM mallas.vinilos {where} ORDER BY herramental",
+                      "FROM mallas.vinilos {where} ORDER BY herramental DESC",
                       ["Herramental","Vehículo","Cód.Veh.","Versión","Pieza","Tipo"],
                       ["herramental","vehiculo","cod_vehiculo","version","pieza","tipo"]),
         "pasta":     ("SELECT TOP(?) consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,ruta_archivo,caso "
-                      "FROM mallas.pasta_plata {where} ORDER BY consecutivo",
+                      "FROM mallas.pasta_plata {where} ORDER BY consecutivo DESC",
                       ["Consecutivo","Tipo","Vehículo","Cód.Veh.","Versión","Pieza","Ruta Archivo","Caso"],
                       ["consecutivo","tipo","vehiculo","cod_vehiculo","version","pieza","ruta_archivo","caso"]),
     }
@@ -902,6 +906,402 @@ class TabBD(ctk.CTkFrame):
             text_color=PAL["green"] if ok else PAL["orange"])
         self._load_stats()
         self._do_search()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  PESTAÑA — GESTIÓN BD (editar / separar)
+# ══════════════════════════════════════════════════════════════════════════════
+class TabGestion(ctk.CTkFrame):
+    TABS = [
+        ("Vitrojet",  "vitrojet",  "🔬"),
+        ("Mallas G",  "grandes",   "🔷"),
+        ("Mallas P",  "pequenas",  "🔹"),
+    ]
+    # sql, headers visibles, campos BD, pk_col, editable_headers
+    QUERIES = {
+        "vitrojet": (
+            "SELECT TOP(?) vitro,codigo_malla,tipo_malla,bnerig,vehiculo,version,ruta,responsable,estado "
+            "FROM mallas.vitrojet {where} ORDER BY TRY_CAST(SUBSTRING(vitro,3,50) AS INT) DESC",
+            ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable","Estado"],
+            ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable","estado"],
+            "vitro",
+        ),
+        "grandes": (
+            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado "
+            "FROM mallas.grandes {where} ORDER BY TRY_CAST(SUBSTRING(codigo,3,50) AS INT) DESC",
+            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado"],
+            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado"],
+            "codigo",
+        ),
+        "pequenas": (
+            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado "
+            "FROM mallas.pequenas {where} ORDER BY TRY_CAST(codigo AS INT) DESC",
+            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado"],
+            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado"],
+            "codigo",
+        ),
+    }
+    WHERE = {
+        "vitrojet": "WHERE vitro LIKE ? OR vehiculo LIKE ? OR codigo_malla LIKE ?",
+        "grandes":  "WHERE descripcion LIKE ? OR codigo LIKE ? OR cod_veh LIKE ?",
+        "pequenas": "WHERE descripcion LIKE ? OR CAST(codigo AS NVARCHAR) LIKE ? OR cod_veh LIKE ?",
+    }
+    # Campos que el usuario puede editar (nunca el PK)
+    EDITABLES = {
+        "vitrojet": [
+            ("Malla",       "codigo_malla"),
+            ("Tipo",        "tipo_malla"),
+            ("B/N",         "bnerig"),
+            ("Vehículo",    "vehiculo"),
+            ("Versión",     "version"),
+            ("Ruta",        "ruta"),
+            ("Responsable", "responsable"),
+        ],
+        "grandes": [
+            ("Cód.Veh.",    "cod_veh"),
+            ("Descripción", "descripcion"),
+            ("Pieza",       "pieza"),
+            ("Tipo",        "tipo"),
+            ("Versión",     "version"),
+            ("Ruta",        "ruta_dwg"),
+            ("Responsable", "responsable"),
+        ],
+        "pequenas": [
+            ("Cód.Veh.",    "cod_veh"),
+            ("Descripción", "descripcion"),
+            ("Pieza",       "pieza"),
+            ("Tipo",        "tipo"),
+            ("Versión",     "version"),
+            ("Ruta",        "ruta_dwg"),
+            ("Responsable", "responsable"),
+        ],
+    }
+    _TABLA = {"vitrojet": "mallas.vitrojet", "grandes": "mallas.grandes", "pequenas": "mallas.pequenas"}
+    _PK    = {"vitrojet": "vitro",           "grandes": "codigo",         "pequenas": "codigo"}
+    _COL_W = {
+        "Vitro":90, "Código":85, "Malla":90, "Cód.Veh.":75,
+        "Tipo":60, "B/N":55, "Tipo malla":60,
+        "Vehículo":170, "Versión":80, "Descripción":160,
+        "Pieza":110, "Ruta":280, "Responsable":120, "Estado":85,
+    }
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color="transparent", **kw)
+        self._tab   = "vitrojet"
+        self._timer = None
+        self._rows  = []   # filas cargadas (dicts)
+        self._build()
+
+    def _build(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(2, weight=1)
+
+        # ── Barra superior ────────────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10,
+                           border_width=1, border_color=PAL["border"])
+        top.grid(row=0, column=0, sticky="ew", padx=4, pady=(4,2))
+        top_in = ctk.CTkFrame(top, fg_color="transparent")
+        top_in.pack(fill="x", padx=14, pady=10)
+        top_in.columnconfigure(1, weight=1)
+
+        # Botón separar
+        self._btn_sep = ctk.CTkButton(
+            top_in, text="＋  Separar vitro / malla", width=200, height=38,
+            font=FONT(12, "bold"), corner_radius=8,
+            fg_color=PAL["orange"], hover_color="#b35c00",
+            command=self._separar)
+        self._btn_sep.grid(row=0, column=0, padx=(0,14))
+
+        # Búsqueda
+        ctk.CTkLabel(top_in, text="🔍", font=FONT(14)
+                     ).grid(row=0, column=1, sticky="e", padx=(0,6))
+        self._search = ctk.CTkEntry(
+            top_in, placeholder_text="Buscar vehículo, código, malla...",
+            height=38, font=FONT(12),
+            fg_color=PAL["card2"], border_color=PAL["border"])
+        self._search.grid(row=0, column=2, sticky="ew", padx=(0,10))
+        self._search.bind("<KeyRelease>", self._on_key)
+        top_in.columnconfigure(2, weight=1)
+
+        # Tabs
+        tab_row = ctk.CTkFrame(top_in, fg_color=PAL["bg"], corner_radius=8)
+        tab_row.grid(row=0, column=3)
+        self._tab_btns = {}
+        for i, (lbl, key, icon) in enumerate(self.TABS):
+            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=105, height=34,
+                              corner_radius=6, font=FONT(11),
+                              fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
+                              hover_color=PAL["border"],
+                              command=lambda k=key: self._set_tab(k))
+            b.grid(row=0, column=i, padx=2, pady=3)
+            self._tab_btns[key] = b
+
+        # ── Hint edición ──────────────────────────────────────────────────────
+        hint = ctk.CTkFrame(self, fg_color="transparent")
+        hint.grid(row=1, column=0, sticky="ew", padx=14, pady=(0,2))
+        ctk.CTkLabel(hint, text="✏  Doble clic sobre una fila para editar sus datos",
+                     font=FONT(10), text_color=PAL["txt_dim"]).pack(anchor="w")
+
+        # ── Tabla ─────────────────────────────────────────────────────────────
+        import tkinter.ttk as ttv
+        card_tbl = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10,
+                                border_width=1, border_color=PAL["border"])
+        card_tbl.grid(row=2, column=0, sticky="nsew", padx=4, pady=4)
+
+        frm = ctk.CTkFrame(card_tbl, fg_color="transparent")
+        frm.pack(fill="both", expand=True, padx=8, pady=8)
+
+        self._tree = ttv.Treeview(frm, style="AGP.Treeview", show="headings", height=22)
+        self._tree.pack(side="left", fill="both", expand=True)
+        sb = ttv.Scrollbar(frm, orient="vertical", command=self._tree.yview)
+        sb.pack(side="right", fill="y")
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.bind("<Double-1>", self._on_doble_click)
+
+        self._lbl_count = ctk.CTkLabel(card_tbl, text="",
+                                       font=FONT(10), text_color=PAL["txt_dim"])
+        self._lbl_count.pack(anchor="e", padx=12, pady=(0,6))
+
+        self._build_cols("vitrojet")
+        self._do_search()
+
+    def _build_cols(self, tab):
+        headers = self.QUERIES[tab][1]
+        self._tree.configure(columns=headers)
+        for h in headers:
+            self._tree.heading(h, text=h, anchor="w")
+            w = self._COL_W.get(h, 100)
+            stretch = h in ("Ruta", "Vehículo", "Descripción")
+            self._tree.column(h, width=w, minwidth=50, stretch=stretch, anchor="w")
+
+    def _set_tab(self, key):
+        self._tab = key
+        for k, b in self._tab_btns.items():
+            b.configure(fg_color=PAL["accent2"] if k==key else "transparent")
+        self._build_cols(key)
+        self._do_search()
+
+    def _on_key(self, _):
+        if self._timer: self.after_cancel(self._timer)
+        self._timer = self.after(300, self._do_search)
+
+    def _do_search(self):
+        threading.Thread(target=self._t_search, daemon=True).start()
+
+    def _t_search(self):
+        q   = self._search.get().strip()
+        tab = self._tab
+        sql_tpl, headers, fields, _ = self.QUERIES[tab]
+        limit = 300
+        self.after(0, lambda: [self._tree.delete(i) for i in self._tree.get_children()])
+        try:
+            if q:
+                where    = self.WHERE[tab]
+                n_params = where.count("?")
+                params   = (limit,) + (f"%{q}%",) * n_params
+                sql      = sql_tpl.format(where=where)
+            else:
+                params = (limit,)
+                sql    = sql_tpl.format(where="")
+            rows = db_query(sql, params)
+        except Exception as e:
+            self.after(0, lambda: self._lbl_count.configure(
+                text=f"Error BD: {str(e)[:80]}", text_color=PAL["red"]))
+            return
+        self.after(0, self._fill, rows, fields, headers)
+
+    def _fill(self, rows, fields, headers):
+        self._rows = rows
+        for i in self._tree.get_children(): self._tree.delete(i)
+        for r in rows:
+            vals = []
+            for f in fields:
+                v = r.get(f, "") or ""
+                vals.append(str(v) if v else "")
+            self._tree.insert("", "end", values=vals)
+        n = len(rows)
+        self._lbl_count.configure(
+            text=f"{n} resultado{'s' if n!=1 else ''}  (máx. 300 — busca para filtrar)",
+            text_color=PAL["txt_dim"])
+
+    def _on_doble_click(self, _):
+        sel = self._tree.selection()
+        if not sel: return
+        idx = self._tree.index(sel[0])
+        if idx >= len(self._rows): return
+        self._abrir_editor(self._rows[idx])
+
+    def _abrir_editor(self, fila):
+        import tkinter as _tk
+        tab       = self._tab
+        editables = self.EDITABLES[tab]
+        pk_col    = self._PK[tab]
+        pk_val    = fila.get(pk_col, "")
+        tabla     = self._TABLA[tab]
+
+        try:
+            root_tk = _tk._default_root
+        except Exception:
+            root_tk = None
+
+        win = _tk.Toplevel(root_tk)
+        win.title(f"Editar — {pk_val}")
+        win.configure(bg="#1e1e2e")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        if root_tk:
+            win.grab_set()
+
+        # Header
+        hdr = _tk.Frame(win, bg=PAL["accent"], height=4)
+        hdr.pack(fill="x")
+        _tk.Frame(win, bg="#1e1e2e", height=10).pack(fill="x")
+        _tk.Label(win, text="✏  Editar registro",
+                  font=("Segoe UI", 15, "bold"), fg="#e2e8f0", bg="#1e1e2e"
+                  ).pack(anchor="w", padx=24, pady=(0,2))
+        _tk.Label(win, text=f"{pk_col.upper()}:  {pk_val}",
+                  font=("Segoe UI", 10), fg=PAL["accent"], bg="#1e1e2e"
+                  ).pack(anchor="w", padx=24, pady=(0,12))
+
+        # Línea separadora
+        _tk.Frame(win, bg="#2d2d44", height=1).pack(fill="x", padx=18, pady=(0,14))
+
+        entries_edit = {}
+        for lbl_txt, campo in editables:
+            row_f = _tk.Frame(win, bg="#1e1e2e")
+            row_f.pack(fill="x", padx=24, pady=4)
+            _tk.Label(row_f, text=lbl_txt, width=14, anchor="e",
+                      font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
+                      ).pack(side="left", padx=(0,10))
+            ent = _tk.Entry(row_f, width=42,
+                            font=("Segoe UI", 10),
+                            bg="#2d2d44", fg="#e2e8f0",
+                            insertbackground="#e2e8f0",
+                            relief="flat", bd=6)
+            ent.pack(side="left", ipady=4)
+            val = fila.get(campo, "") or ""
+            ent.insert(0, str(val))
+            entries_edit[campo] = ent
+
+        _tk.Frame(win, bg="#1e1e2e", height=6).pack()
+        _tk.Frame(win, bg="#2d2d44", height=1).pack(fill="x", padx=18, pady=(0,12))
+
+        # Estado (solo lectura, info)
+        estado_val = fila.get("estado", "") or "—"
+        color_est  = {"ASIGNADO": "#22c55e", "PENDIENTE": "#f59e0b",
+                      "CANCELADO": "#ef4444"}.get(estado_val, "#94a3b8")
+        est_f = _tk.Frame(win, bg="#1e1e2e")
+        est_f.pack(fill="x", padx=24, pady=(0,16))
+        _tk.Label(est_f, text="Estado", width=14, anchor="e",
+                  font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
+                  ).pack(side="left", padx=(0,10))
+        _tk.Label(est_f, text=f"  {estado_val}  ",
+                  font=("Segoe UI", 9, "bold"), fg=color_est, bg="#252538",
+                  relief="flat", bd=4
+                  ).pack(side="left")
+
+        # Botones
+        btn_f = _tk.Frame(win, bg="#1e1e2e")
+        btn_f.pack(fill="x", padx=24, pady=(0,18))
+
+        msg_lbl = _tk.Label(btn_f, text="", font=("Segoe UI", 9),
+                            fg="#22c55e", bg="#1e1e2e")
+        msg_lbl.pack(anchor="w", pady=(0,8))
+
+        def _guardar():
+            sets   = []
+            params = []
+            for campo, ent in entries_edit.items():
+                v = ent.get().strip() or None
+                sets.append(f"{campo}=?")
+                params.append(v)
+            if not sets: return
+            params.append(pk_val)
+            sql = f"UPDATE {tabla} SET {', '.join(sets)} WHERE {pk_col}=?"
+            try:
+                cn = db_connect()
+                cn.execute(sql, params)
+                cn.commit()
+                cn.close()
+                msg_lbl.configure(text="✔ Guardado correctamente", fg="#22c55e")
+                win.after(1200, win.destroy)
+                self.after(200, self._do_search)
+            except Exception as ex:
+                msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
+
+        btn_ok = _tk.Button(btn_f, text="  Guardar cambios  ",
+                            font=("Segoe UI", 10, "bold"),
+                            bg=PAL["accent"], fg="white", relief="flat",
+                            activebackground="#2563eb", cursor="hand2",
+                            command=_guardar)
+        btn_ok.pack(side="left", ipadx=6, ipady=6, padx=(0,10))
+
+        btn_cancel = _tk.Button(btn_f, text="  Cancelar  ",
+                                font=("Segoe UI", 10),
+                                bg="#2d2d44", fg="#94a3b8", relief="flat",
+                                activebackground="#3d3d5c", cursor="hand2",
+                                command=win.destroy)
+        btn_cancel.pack(side="left", ipadx=6, ipady=6, padx=(0,20))
+
+        def _anular():
+            from tkinter import messagebox as _mb
+            pk_label = pk_col.upper()
+            confirmar_txt = (
+                f"¿Seguro que quieres ANULAR este registro?\n\n"
+                f"  {pk_label}: {pk_val}\n\n"
+                f"Esto borrará todos los datos asociados (vehículo, ruta, responsable, etc.)\n"
+                f"y pondrá el número como CANCELADO para que otro lo pueda tomar.\n\n"
+                f"Si tiene vitro+malla vinculados, ambos quedarán cancelados."
+            )
+            if not _mb.askyesno("Confirmar anulación", confirmar_txt, icon="warning"):
+                return
+            try:
+                from db_app.asignaciones import anular_asignacion
+            except ImportError:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(os.path.dirname(__file__), "db_app"))
+                from asignaciones import anular_asignacion
+            try:
+                res = anular_asignacion(tab, pk_val)
+                partes = [f"{k}: {v}" for k, v in res.items() if v > 0]
+                msg_lbl.configure(
+                    text=f"✔ Anulado — {', '.join(partes) if partes else 'sin cambios'}",
+                    fg="#f59e0b")
+                win.after(1500, win.destroy)
+                self.after(200, self._do_search)
+            except Exception as ex:
+                msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
+
+        btn_anular = _tk.Button(btn_f, text="⚠  Quedó mal — Anular",
+                                font=("Segoe UI", 10, "bold"),
+                                bg="#7f1d1d", fg="#fca5a5", relief="flat",
+                                activebackground="#991b1b", cursor="hand2",
+                                command=_anular)
+        btn_anular.pack(side="right", ipadx=6, ipady=6)
+
+        win.update_idletasks()
+        # Centrar sobre la ventana principal
+        try:
+            rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - win.winfo_width()  // 2
+            ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - win.winfo_height() // 2
+            win.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+
+    def _separar(self):
+        try:
+            try:
+                from db_app.asignaciones import dialogo_separar
+            except ImportError:
+                import sys as _sys, os as _os
+                _sys.path.insert(0, _os.path.join(os.path.dirname(__file__), "db_app"))
+                from asignaciones import dialogo_separar
+            import tkinter as _tk
+            prop = dialogo_separar(parent_win=_tk._default_root)
+            if prop:
+                self._do_search()
+        except Exception as e:
+            messagebox.showerror("Error", str(e))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -1205,6 +1605,7 @@ class AGPApp(ctk.CTk):
     PAGES = [
         ("Crear Arte",    "🎨", TabArte),
         ("Consultar BD",  "🔍", TabBD),
+        ("Gestión BD",    "✏", TabGestion),
         ("Scanner",       "📷", TabScanner),
     ]
 
@@ -1216,6 +1617,16 @@ class AGPApp(ctk.CTk):
         self._active = None
         self._frames = {}
         self._build()
+        threading.Thread(target=self._limpiar_pendientes, daemon=True).start()
+
+    def _limpiar_pendientes(self):
+        try:
+            from db_app.asignaciones import limpiar_pendientes_huerfanos
+            nv, ng, np_ = limpiar_pendientes_huerfanos()
+            if nv + ng + np_ > 0:
+                print(f"[startup] Pendientes huerfanos cancelados: {nv} vitros, {ng} grandes, {np_} pequenas")
+        except Exception as e:
+            print(f"[startup] WARN limpiar pendientes: {e}")
 
     def _build(self):
         self.grid_columnconfigure(1, weight=1)
@@ -1276,7 +1687,8 @@ class AGPApp(ctk.CTk):
 
         self.bind("<Alt-Key-1>", lambda _: self._show("Crear Arte"))
         self.bind("<Alt-Key-2>", lambda _: self._show("Consultar BD"))
-        self.bind("<Alt-Key-3>", lambda _: self._show("Scanner"))
+        self.bind("<Alt-Key-3>", lambda _: self._show("Gestión BD"))
+        self.bind("<Alt-Key-4>", lambda _: self._show("Scanner"))
 
         self._show("Crear Arte")
 

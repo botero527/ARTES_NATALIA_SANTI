@@ -237,6 +237,119 @@ def cancelar(reserva):
         cn.close()
 
 
+def actualizar_ruta_arte(vitro, malla, ruta):
+    """Actualiza ruta real del archivo arte en BD despues de crearlo (Todo en Uno).
+    vitro y malla pueden ser strings simples ("T-30163") o multiples separados
+    por " / " ("T-30163 / T-30164") segun llena el cajetin cuando reserva varios.
+    """
+    ruta = _val(ruta)
+    if not ruta:
+        return
+
+    def _codigos(s):
+        """Convierte 'T-30163 / T-30164' → ['T-30163', 'T-30164']."""
+        if not s:
+            return []
+        return [c.strip() for c in str(s).split("/") if c.strip()]
+
+    vitros  = _codigos(vitro)
+    mallas  = _codigos(malla)
+    if not (vitros or mallas):
+        return
+
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        for v in vitros:
+            cur.execute("UPDATE mallas.vitrojet SET ruta=? WHERE vitro=?", (ruta, v))
+        for m in mallas:
+            if m.startswith("A-"):
+                cur.execute("UPDATE mallas.grandes SET ruta_dwg=? WHERE codigo=?", (ruta, m))
+            else:
+                cur.execute("UPDATE mallas.pequenas SET ruta_dwg=? WHERE CAST(codigo AS NVARCHAR)=?", (ruta, m))
+        cn.commit()
+    finally:
+        cn.close()
+
+
+def anular_asignacion(tab, pk_val):
+    """Cancela y limpia completamente una fila, dejando el numero reciclable.
+    tab     : 'vitrojet' | 'grandes' | 'pequenas'
+    pk_val  : valor del PK (ej. 'T-30163', 'A-13771', '1024')
+
+    Cascadeo automatico:
+    - vitrojet  -> limpia vitrojet + limpia la malla vinculada (codigo_malla)
+    - grandes   -> limpia grandes  + limpia vitrojet que referencie ese codigo
+    - pequenas  -> limpia pequenas + limpia vitrojet que referencie ese codigo
+    Retorna dict con cuantas filas se limpiaron por tabla.
+    """
+    _NULL_VITRO   = ("vehiculo=NULL, version=NULL, ruta=NULL, responsable=NULL, "
+                     "cod_completo=NULL, bnerig=NULL, tipo_malla=NULL, codigo_malla=NULL")
+    _NULL_MALLA   = ("cod_veh=NULL, descripcion=NULL, pieza=NULL, tipo=NULL, "
+                     "version=NULL, ruta_dwg=NULL, responsable=NULL")
+
+    cn = conectar()
+    resultado = {"vitrojet": 0, "grandes": 0, "pequenas": 0}
+    try:
+        cur = cn.cursor()
+
+        if tab == "vitrojet":
+            # Obtener la malla vinculada antes de limpiar
+            cur.execute("SELECT codigo_malla FROM mallas.vitrojet WHERE vitro=?", (pk_val,))
+            row = cur.fetchone()
+            malla = row[0] if row else None
+
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE vitro=?", (pk_val,))
+            resultado["vitrojet"] = cur.rowcount
+
+            if malla:
+                if str(malla).startswith("A-"):
+                    cur.execute(f"UPDATE mallas.grandes  SET estado='CANCELADO', {_NULL_MALLA} WHERE codigo=?", (malla,))
+                    resultado["grandes"] = cur.rowcount
+                else:
+                    cur.execute(f"UPDATE mallas.pequenas SET estado='CANCELADO', {_NULL_MALLA} WHERE CAST(codigo AS NVARCHAR)=?", (str(malla),))
+                    resultado["pequenas"] = cur.rowcount
+
+        elif tab == "grandes":
+            cur.execute(f"UPDATE mallas.grandes SET estado='CANCELADO', {_NULL_MALLA} WHERE codigo=?", (pk_val,))
+            resultado["grandes"] = cur.rowcount
+            # Limpiar vitrojet que apunte a esta malla
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE codigo_malla=?", (pk_val,))
+            resultado["vitrojet"] = cur.rowcount
+
+        elif tab == "pequenas":
+            cur.execute(f"UPDATE mallas.pequenas SET estado='CANCELADO', {_NULL_MALLA} WHERE CAST(codigo AS NVARCHAR)=?", (str(pk_val),))
+            resultado["pequenas"] = cur.rowcount
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE codigo_malla=?", (str(pk_val),))
+            resultado["vitrojet"] = cur.rowcount
+
+        cn.commit()
+    finally:
+        cn.close()
+    return resultado
+
+
+def limpiar_pendientes_huerfanos():
+    """Cancela filas PENDIENTE al iniciar la app.
+    PENDIENTE solo existe mientras un dialogo esta abierto — si la app
+    no estaba corriendo, esas filas son huerfanas de un crash anterior.
+    Retorna (n_vitros, n_grandes, n_pequenas) cancelados.
+    """
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        cur.execute("UPDATE mallas.vitrojet  SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        nv = cur.rowcount
+        cur.execute("UPDATE mallas.grandes   SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        ng = cur.rowcount
+        cur.execute("UPDATE mallas.pequenas  SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        np_ = cur.rowcount
+        cn.commit()
+        return nv, ng, np_
+    finally:
+        cn.close()
+
+
 # Alias para compatibilidad con codigo existente
 def proponer(n_vitros=0, n_grandes=0, n_pequenas=0):
     return reservar(n_vitros, n_grandes, n_pequenas)

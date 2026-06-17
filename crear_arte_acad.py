@@ -309,8 +309,9 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
             ("NAGS",      "NAGS",           "auto"),
             ("VERSION",   "Versión",        "auto"),
             ("PIEZA",     "Pieza",          "auto"),
-            ("VITRO",     "Vitro",          None),
-            ("MALLA",     "Malla",          None),
+            ("VITRO",        "Vitro",             None),
+            ("MALLA",        "Malla",             None),
+            ("NOMBRE ARTE",  "Nombre archivo arte","auto"),
         ]),
         ("VALORES POR DEFECTO", [
             ("FECHA",     "Fecha",          hoy),
@@ -456,12 +457,30 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
     entries["VEHICULO"].bind("<FocusOut>",  on_vehiculo)
     entries["VEHICULO"].bind("<Return>",    on_vehiculo)
 
+    def _sugerir_nombre_arte(*_):
+        malla = entries["MALLA"].get().strip()
+        pieza = entries["PIEZA"].get().strip()
+        partes = [p for p in [malla, pieza] if p]
+        sugerido = ("P " + " ".join(partes) if partes else
+                    "P " + nombre_plano) + ".dwg"
+        while "  " in sugerido:
+            sugerido = sugerido.replace("  ", " ")
+        entries["NOMBRE ARTE"].delete(0, tk.END)
+        entries["NOMBRE ARTE"].insert(0, sugerido)
+        entries["NOMBRE ARTE"].configure(fg=_C["auto_fg"])
+
+    entries["MALLA"].bind("<FocusOut>", _sugerir_nombre_arte)
+    entries["MALLA"].bind("<Return>",   _sugerir_nombre_arte)
+    entries["PIEZA"].bind("<FocusOut>", _sugerir_nombre_arte)
+    entries["PIEZA"].bind("<Return>",   _sugerir_nombre_arte)
+
     # Pre-llenar
     if nombre_plano:
         entries["COD PLANO"].delete(0, tk.END)
         entries["COD PLANO"].insert(0, nombre_plano)
         entries["COD PLANO"].configure(fg=_C["text"])
         on_cod_plano()
+        _sugerir_nombre_arte()
 
     entries["DIBUJO"].focus_set()
 
