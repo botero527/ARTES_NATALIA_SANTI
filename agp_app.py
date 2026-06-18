@@ -43,6 +43,17 @@ try:
 except Exception:
     _PIPELINE_OK = False
 
+try:
+    from db_app.asignaciones import (
+        actualizar_ruta_arte as _actualizar_ruta_arte,
+        anular_asignacion as _anular_asignacion,
+        dialogo_separar as _dialogo_separar,
+        limpiar_pendientes_huerfanos as _limpiar_pendientes_huerfanos,
+    )
+    _ASIGN_OK = True
+except Exception:
+    _ASIGN_OK = False
+
 import re, math, shutil, json, datetime
 from tkinter import filedialog, messagebox
 
@@ -259,14 +270,21 @@ class StatCard(ctk.CTkFrame):
 class TabArte(ctk.CTkFrame):
     def __init__(self, parent, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
-        self._ruta_base  = ctk.StringVar()
-        self._ruta_dwg   = ctk.StringVar()
-        self._compensar  = ctk.BooleanVar(value=False)
-        self._resultados = []
+        self._ruta_base   = ctk.StringVar()
+        self._ruta_dwg    = ctk.StringVar()
+        self._compensar   = ctk.BooleanVar(value=False)
+        self._resultados  = []
+        self._on_art_done = None  # callback → AGPApp notifica a otras pestañas
         self._build()
 
     def _build(self):
         self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+
+        # Scroll interno para los cards
+        self._inner = ctk.CTkScrollableFrame(self, fg_color="transparent", corner_radius=0)
+        self._inner.grid(row=0, column=0, sticky="nsew")
+        self._inner.columnconfigure(0, weight=1)
 
         # ── Sección inputs ────────────────────────────────────────────────────
         card_in = self._card("CONFIGURACIÓN", row=0)
@@ -384,11 +402,9 @@ class TabArte(ctk.CTkFrame):
         self._log = LogBox(card_log, height=180)
         self._log.pack(fill="both", expand=True, pady=(4,0))
 
-        self.rowconfigure(3, weight=1)
-
     # ── helpers ──────────────────────────────────────────────────────────────
     def _card(self, title, row):
-        outer = ctk.CTkFrame(self, fg_color=PAL["card"],
+        outer = ctk.CTkFrame(self._inner, fg_color=PAL["card"],
                               corner_radius=10, border_width=1,
                               border_color=PAL["border"])
         outer.grid(row=row, column=0, sticky="ew", padx=4, pady=6)
@@ -452,8 +468,7 @@ class TabArte(ctk.CTkFrame):
             try:
                 motor.extraer_layers(dwg, dest, log_fn=lambda m: self._log_fn(m, "dim"))
             finally:
-                motor.quit()
-                pythoncom.CoUninitialize()
+                motor.quit()  # quit() ya llama CoUninitialize internamente
             self._log_fn(f"Guardado → {dest}", "ok")
             subprocess.Popen(["explorer", "/select,", dest])
         except Exception as e:
@@ -492,11 +507,13 @@ class TabArte(ctk.CTkFrame):
             malla_bd = valores.get("MALLA","").strip()
             if vitro_bd or malla_bd:
                 try:
-                    from db_app.asignaciones import actualizar_ruta_arte
-                    actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
-                    self._log_fn("Ruta guardada en BD ✔", "dim")
+                    if _ASIGN_OK:
+                        _actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
+                        self._log_fn("Ruta guardada en BD ✔", "dim")
                 except Exception as _re:
                     self._log_fn(f"WARN ruta BD: {_re}", "warn")
+            if self._on_art_done:
+                self.after(0, self._on_art_done)
         except Exception as e:
             self._log_fn(str(e), "err")
         finally:
@@ -577,9 +594,9 @@ class TabArte(ctk.CTkFrame):
             malla_bd = valores.get("MALLA","").strip()
             if vitro_bd or malla_bd:
                 try:
-                    from db_app.asignaciones import actualizar_ruta_arte
-                    actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
-                    self._log_fn("Ruta guardada en BD ✔", "dim")
+                    if _ASIGN_OK:
+                        _actualizar_ruta_arte(vitro_bd, malla_bd, arte0)
+                        self._log_fn("Ruta guardada en BD ✔", "dim")
                 except Exception as _re:
                     self._log_fn(f"WARN ruta BD: {_re}", "warn")
 
@@ -604,6 +621,8 @@ class TabArte(ctk.CTkFrame):
             pythoncom.CoUninitialize()
 
         self._log_fn("Todo en Uno completado.", "ok")
+        if self._on_art_done:
+            self.after(0, self._on_art_done)
         self.after(0, lambda: subprocess.Popen(["explorer", os.path.dirname(arte0)]))
         self._busy(False)
 
@@ -709,33 +728,37 @@ class TabBD(ctk.CTkFrame):
             c.grid(row=0, column=i, padx=4, pady=6, sticky="ew")
             self._cards[key] = c
 
-        # ── Barra búsqueda + tabs ─────────────────────────────────────────────
+        # ── Barra búsqueda + tabs — 2 filas para que no se corte ─────────────
         bar = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10,
                            border_width=1, border_color=PAL["border"])
         bar.grid(row=1, column=0, sticky="ew", padx=4, pady=4)
         bar_in = ctk.CTkFrame(bar, fg_color="transparent")
-        bar_in.pack(fill="x", padx=12, pady=10)
-        bar_in.columnconfigure(1, weight=1)
+        bar_in.pack(fill="x", padx=12, pady=(8,8))
+        bar_in.columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(bar_in, text="🔍", font=FONT(14)
-                     ).grid(row=0, column=0, padx=(0,6))
-        self._search = ctk.CTkEntry(bar_in, placeholder_text="Buscar vehículo, código, malla...",
-                                     height=44, font=FONT(13),
-                                     fg_color=PAL["card2"], border_color=PAL["border"])
-        self._search.grid(row=0, column=1, sticky="ew", padx=(0,10))
-        self._search.bind("<KeyRelease>", self._on_key)
-
+        # Fila 0: Tabs
         tab_bar = ctk.CTkFrame(bar_in, fg_color=PAL["bg"], corner_radius=8)
-        tab_bar.grid(row=0, column=2)
+        tab_bar.grid(row=0, column=0, sticky="w", pady=(0,8))
         self._tab_btns = {}
         for i, (lbl, key, icon) in enumerate(self.TABS):
-            b = ctk.CTkButton(tab_bar, text=f"{icon} {lbl}", width=115, height=38,
+            b = ctk.CTkButton(tab_bar, text=f"{icon} {lbl}", width=120, height=36,
                               corner_radius=8, font=FONT(12),
                               fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
                               hover_color=PAL["border"],
                               command=lambda k=key: self._set_tab(k))
             b.grid(row=0, column=i, padx=2, pady=3)
             self._tab_btns[key] = b
+
+        # Fila 1: Búsqueda
+        srch = ctk.CTkFrame(bar_in, fg_color="transparent")
+        srch.grid(row=1, column=0, sticky="ew")
+        srch.columnconfigure(1, weight=1)
+        ctk.CTkLabel(srch, text="🔍", font=FONT(14)).grid(row=0, column=0, padx=(0,6))
+        self._search = ctk.CTkEntry(srch, placeholder_text="Buscar vehículo, código, malla...",
+                                     height=40, font=FONT(13),
+                                     fg_color=PAL["card2"], border_color=PAL["border"])
+        self._search.grid(row=0, column=1, sticky="ew")
+        self._search.bind("<KeyRelease>", self._on_key)
 
         # ── Panel Sincronizar Excel ───────────────────────────────────────────
         sync_card = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10,
@@ -784,7 +807,7 @@ class TabBD(ctk.CTkFrame):
         self._lbl_count.pack(anchor="e", padx=12, pady=(0,6))
 
         self._build_tree_cols("vitrojet")
-        self._do_search()
+        # No buscar en frío — se carga cuando el usuario entra a la pestaña
 
     _COL_W = {
         # Vitrojet
@@ -914,6 +937,11 @@ class TabBD(ctk.CTkFrame):
         self._load_stats()
         self._do_search()
 
+    def refresh(self):
+        """Refresca stats y tabla (llamado desde otras pestañas tras cambios)."""
+        self._load_stats()
+        self._do_search()
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PESTAÑA — GESTIÓN BD (editar / separar)
@@ -994,63 +1022,68 @@ class TabGestion(ctk.CTkFrame):
 
     def __init__(self, parent, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
-        self._tab   = "vitrojet"
-        self._timer = None
-        self._rows  = []   # filas cargadas (dicts)
+        self._tab             = "vitrojet"
+        self._timer           = None
+        self._rows            = []
+        self._on_data_changed = None  # callback → AGPApp notifica a TabBD
         self._build()
 
     def _build(self):
         self.columnconfigure(0, weight=1)
         self.rowconfigure(2, weight=1)
 
-        # ── Barra superior ────────────────────────────────────────────────────
+        # ── Barra superior — 2 filas para que no se corte ─────────────────────
         top = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10,
                            border_width=1, border_color=PAL["border"])
         top.grid(row=0, column=0, sticky="ew", padx=4, pady=(4,2))
         top_in = ctk.CTkFrame(top, fg_color="transparent")
-        top_in.pack(fill="x", padx=14, pady=10)
-        top_in.columnconfigure(1, weight=1)
+        top_in.pack(fill="x", padx=14, pady=(10,6))
+        top_in.columnconfigure(0, weight=1)
 
-        # Botones acción
-        btn_grp = ctk.CTkFrame(top_in, fg_color="transparent")
-        btn_grp.grid(row=0, column=0, padx=(0,14))
-
-        self._btn_sep = ctk.CTkButton(
-            btn_grp, text="＋  Separar vitro / malla", width=195, height=38,
-            font=FONT(11, "bold"), corner_radius=8,
-            fg_color=PAL["orange"], hover_color="#b35c00",
-            command=self._separar)
-        self._btn_sep.pack(side="left", padx=(0,8))
-
-        ctk.CTkButton(
-            btn_grp, text="📝  Insertar manual", width=155, height=38,
-            font=FONT(11, "bold"), corner_radius=8,
-            fg_color=PAL["green2"], hover_color="#1e5c36",
-            command=self._insertar_manual).pack(side="left")
-
-        # Búsqueda
-        ctk.CTkLabel(top_in, text="🔍", font=FONT(14)
-                     ).grid(row=0, column=1, sticky="e", padx=(0,6))
-        self._search = ctk.CTkEntry(
-            top_in, placeholder_text="Buscar vehículo, código, malla...",
-            height=44, font=FONT(13),
-            fg_color=PAL["card2"], border_color=PAL["border"])
-        self._search.grid(row=0, column=2, sticky="ew", padx=(0,10))
-        self._search.bind("<KeyRelease>", self._on_key)
-        top_in.columnconfigure(2, weight=1)
-
-        # Tabs
+        # Fila 0: Tabs (Vitrojet / Mallas G / Mallas P)
         tab_row = ctk.CTkFrame(top_in, fg_color=PAL["bg"], corner_radius=8)
-        tab_row.grid(row=0, column=3)
+        tab_row.grid(row=0, column=0, sticky="w", pady=(0,8))
         self._tab_btns = {}
         for i, (lbl, key, icon) in enumerate(self.TABS):
-            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=115, height=38,
+            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=130, height=36,
                               corner_radius=8, font=FONT(12),
                               fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
                               hover_color=PAL["border"],
                               command=lambda k=key: self._set_tab(k))
             b.grid(row=0, column=i, padx=2, pady=3)
             self._tab_btns[key] = b
+
+        # Fila 1: botones de acción + búsqueda
+        row1 = ctk.CTkFrame(top_in, fg_color="transparent")
+        row1.grid(row=1, column=0, sticky="ew")
+        row1.columnconfigure(1, weight=1)
+
+        btn_grp = ctk.CTkFrame(row1, fg_color="transparent")
+        btn_grp.grid(row=0, column=0, padx=(0,12))
+
+        self._btn_sep = ctk.CTkButton(
+            btn_grp, text="＋  Separar vitro / malla", width=185, height=38,
+            font=FONT(11, "bold"), corner_radius=8,
+            fg_color=PAL["orange"], hover_color="#b35c00",
+            command=self._separar)
+        self._btn_sep.pack(side="left", padx=(0,8))
+
+        ctk.CTkButton(
+            btn_grp, text="📝  Insertar manual", width=150, height=38,
+            font=FONT(11, "bold"), corner_radius=8,
+            fg_color=PAL["green2"], hover_color="#1e5c36",
+            command=self._insertar_manual).pack(side="left")
+
+        srch_grp = ctk.CTkFrame(row1, fg_color="transparent")
+        srch_grp.grid(row=0, column=1, sticky="ew")
+        srch_grp.columnconfigure(1, weight=1)
+        ctk.CTkLabel(srch_grp, text="🔍", font=FONT(14)).grid(row=0, column=0, padx=(0,6))
+        self._search = ctk.CTkEntry(
+            srch_grp, placeholder_text="Buscar vehículo, código, malla...",
+            height=38, font=FONT(13),
+            fg_color=PAL["card2"], border_color=PAL["border"])
+        self._search.grid(row=0, column=1, sticky="ew")
+        self._search.bind("<KeyRelease>", self._on_key)
 
         # ── Hint edición ──────────────────────────────────────────────────────
         hint = ctk.CTkFrame(self, fg_color="transparent")
@@ -1079,7 +1112,7 @@ class TabGestion(ctk.CTkFrame):
         self._lbl_count.pack(anchor="e", padx=12, pady=(0,6))
 
         self._build_cols("vitrojet")
-        self._do_search()
+        # No llamar _do_search() aquí — se llama cuando el usuario entra a la pestaña
 
     def _build_cols(self, tab):
         headers = self.QUERIES[tab][1]
@@ -1242,6 +1275,8 @@ class TabGestion(ctk.CTkFrame):
                 msg_lbl.configure(text="✔ Guardado correctamente", fg="#22c55e")
                 win.after(1200, win.destroy)
                 self.after(200, self._do_search)
+                if self._on_data_changed:
+                    self.after(400, self._on_data_changed)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
 
@@ -1272,19 +1307,15 @@ class TabGestion(ctk.CTkFrame):
             if not _mb.askyesno("Confirmar anulación", confirmar_txt, icon="warning"):
                 return
             try:
-                from db_app.asignaciones import anular_asignacion
-            except ImportError:
-                import sys as _sys, os as _os
-                _sys.path.insert(0, _os.path.join(os.path.dirname(__file__), "db_app"))
-                from asignaciones import anular_asignacion
-            try:
-                res = anular_asignacion(tab, pk_val)
+                res = _anular_asignacion(tab, pk_val)
                 partes = [f"{k}: {v}" for k, v in res.items() if v > 0]
                 msg_lbl.configure(
                     text=f"✔ Anulado — {', '.join(partes) if partes else 'sin cambios'}",
                     fg="#f59e0b")
                 win.after(1500, win.destroy)
                 self.after(200, self._do_search)
+                if self._on_data_changed:
+                    self.after(400, self._on_data_changed)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
 
@@ -1526,6 +1557,8 @@ class TabGestion(ctk.CTkFrame):
                     text=f"✔ Insertado: {pk_insertado or 'OK'}", fg="#22c55e")
                 win.after(1500, win.destroy)
                 self.after(200, self._do_search)
+                if self._on_data_changed:
+                    self.after(400, self._on_data_changed)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {str(ex)[:90]}", fg="#ef4444")
 
@@ -1551,18 +1584,18 @@ class TabGestion(ctk.CTkFrame):
         except Exception:
             pass
 
+    def refresh(self):
+        """Refresca la tabla (llamado desde otras pestañas tras cambios)."""
+        self._do_search()
+
     def _separar(self):
         try:
-            try:
-                from db_app.asignaciones import dialogo_separar
-            except ImportError:
-                import sys as _sys, os as _os
-                _sys.path.insert(0, _os.path.join(os.path.dirname(__file__), "db_app"))
-                from asignaciones import dialogo_separar
             import tkinter as _tk
-            prop = dialogo_separar(parent_win=_tk._default_root)
+            prop = _dialogo_separar(parent_win=_tk._default_root)
             if prop:
                 self._do_search()
+                if self._on_data_changed:
+                    self.after(200, self._on_data_changed)
         except Exception as e:
             messagebox.showerror("Error", str(e))
 
@@ -1884,10 +1917,10 @@ class AGPApp(ctk.CTk):
 
     def _limpiar_pendientes(self):
         try:
-            from db_app.asignaciones import limpiar_pendientes_huerfanos
-            nv, ng, np_ = limpiar_pendientes_huerfanos()
-            if nv + ng + np_ > 0:
-                print(f"[startup] Pendientes huerfanos cancelados: {nv} vitros, {ng} grandes, {np_} pequenas")
+            if _ASIGN_OK:
+                nv, ng, np_ = _limpiar_pendientes_huerfanos()
+                if nv + ng + np_ > 0:
+                    print(f"[startup] Pendientes huerfanos cancelados: {nv} vitros, {ng} grandes, {np_} pequenas")
         except Exception as e:
             print(f"[startup] WARN limpiar pendientes: {e}")
 
@@ -1936,8 +1969,8 @@ class AGPApp(ctk.CTk):
                      ).pack(fill="x", padx=12, pady=2, side="bottom")
 
         # Acelerador de teclas
-        ctk.CTkLabel(sidebar, text="Alt+1 Arte  ·  Alt+2 BD  ·  Alt+3 Scanner",
-                     font=FONT(9), text_color=PAL["txt_dim"]
+        ctk.CTkLabel(sidebar, text="Alt+1 Arte  ·  Alt+2 BD\nAlt+3 Gestión  ·  Alt+4 Scanner",
+                     font=FONT(9), text_color=PAL["txt_dim"], justify="center"
                      ).pack(side="bottom", pady=2)
 
         # ── CONTENIDO ─────────────────────────────────────────────────────────
@@ -1963,21 +1996,29 @@ class AGPApp(ctk.CTk):
         ctk.CTkFrame(self._header_frame, fg_color=PAL["border"], height=1
                      ).pack(fill="x", padx=0, pady=(12, 0))
 
-        self._content = ctk.CTkScrollableFrame(content_wrapper, fg_color=PAL["bg"],
-                                                corner_radius=0)
+        # Contenedor plano para stacking de pestañas con place()
+        self._content = ctk.CTkFrame(content_wrapper, fg_color=PAL["bg"], corner_radius=0)
         self._content.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
-        self._content.columnconfigure(0, weight=1)
+        self._content.bind("<Configure>", self._on_content_resize)
 
         # Header top strip
         ctk.CTkFrame(self, fg_color=PAL["accent"], height=3
                      ).grid(row=0, column=0, columnspan=2, sticky="new")
 
-        # Instanciar páginas
+        # Instanciar páginas — apiladas con place(relwidth=1, relheight=1)
         for name, icon, cls in self.PAGES:
             f = cls(self._content)
-            f.grid(row=0, column=0, sticky="nsew")
-            f.grid_remove()
+            f.place(x=0, y=0, relwidth=1, relheight=1)
+            f.place_forget()
             self._frames[name] = f
+
+        # Conectar callbacks para refresh entre pestañas
+        def _refresh_bd():
+            self._frames["Consultar BD"].refresh()
+            self._frames["Gestión BD"].refresh()
+
+        self._frames["Crear Arte"]._on_art_done    = _refresh_bd
+        self._frames["Gestión BD"]._on_data_changed = self._frames["Consultar BD"].refresh
 
         self.bind("<Alt-Key-1>", lambda _: self._show("Crear Arte"))
         self.bind("<Alt-Key-2>", lambda _: self._show("Consultar BD"))
@@ -1993,15 +2034,24 @@ class AGPApp(ctk.CTk):
         "Scanner":      "Escáner de órdenes de producción — barcode → SmartFactory → SAP",
     }
 
+    def _on_content_resize(self, e):
+        for f in self._frames.values():
+            try: f.place_configure(width=e.width, height=e.height)
+            except Exception: pass
+
     def _show(self, name):
         if self._active:
-            self._frames[self._active].grid_remove()
+            self._frames[self._active].place_forget()
             self._nav_btns[self._active].set_active(False)
-        self._frames[name].grid()
+        self._frames[name].place(x=0, y=0, relwidth=1, relheight=1)
+        self._frames[name].lift()
         self._nav_btns[name].set_active(True)
         self._active = name
         self._header_title.configure(text=name)
         self._header_sub.configure(text=self._PAGE_SUBTITLES.get(name, ""))
+        # Refrescar BD al entrar a esas pestañas (datos siempre actualizados)
+        if name in ("Consultar BD", "Gestión BD"):
+            self._frames[name].refresh()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

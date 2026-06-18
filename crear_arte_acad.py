@@ -17,7 +17,14 @@ except ImportError:
 
 # ── Parámetros ────────────────────────────────────────────────────────────────
 _DIR          = os.path.dirname(os.path.abspath(__file__))
-CAJETIN_DWG   = os.path.join(_DIR, "LAYERS Y CAJETINES 1.dwg")
+_CAJETIN_DEFAULT = r"\\192.168.2.37\ingenieria\PRODUCCION\AGP PLANOS TECNICOS\Users\ANDRES ING\LAYERS Y CAJETINES 1.dwg"
+# Variable de entorno AGP_CAJETIN para sobreescribir la ruta si es necesario
+CAJETIN_DWG   = os.environ.get("AGP_CAJETIN", _CAJETIN_DEFAULT)
+# Fallback: si la ruta de red no existe, busca en la carpeta local del script
+if not os.path.isfile(CAJETIN_DWG):
+    _local = os.path.join(_DIR, "LAYERS Y CAJETINES 1.dwg")
+    if os.path.isfile(_local):
+        CAJETIN_DWG = _local
 
 OFFSET_PERIM  = 0.5
 OFFSET_BN_DEG = 2.5

@@ -1,5 +1,4 @@
-pywin32
-fastapi
-uvicorn[standard]
-pyodbc
-openpyxl
+customtkinter>=5.2.0
+pyodbc>=4.0.35
+openpyxl>=3.1.0
+pywin32>=306

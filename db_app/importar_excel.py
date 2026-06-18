@@ -10,11 +10,15 @@ import os, sys, time, datetime
 import pyodbc
 import openpyxl
 
-EXCEL = (
+_EXCEL_DEFAULT = (
     r"C:\Users\abotero\OneDrive - AGP GROUP"
     r"\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020"
     r"\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
+    # ↑ CAMBIAR esta ruta por la ruta de red cuando la tengas
+    # Ejemplo: r"\\192.168.2.37\ingenieria\...\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
 )
+# Variable de entorno AGP_EXCEL para sobreescribir la ruta si es necesario.
+EXCEL = os.environ.get("AGP_EXCEL", _EXCEL_DEFAULT)
 
 CONN_STR = (
     "DRIVER={ODBC Driver 17 for SQL Server};"

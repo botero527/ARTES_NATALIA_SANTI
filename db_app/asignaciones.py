@@ -134,6 +134,12 @@ def _reservar_tabla(cur, n, tabla, pk, seq, fmt, filtro_nuevo):
         f"WHERE estado='CANCELADO'"
     )
     reciclados = [str(r[0]) for r in cur.fetchall()]
+    if reciclados:
+        # Actualizar updated_at para poder detectar huérfanos por tiempo
+        placeholders = ",".join(["?"] * len(reciclados))
+        cur.execute(
+            f"UPDATE mallas.{tabla} SET updated_at=GETDATE() "
+            f"WHERE {pk} IN ({placeholders})", reciclados)
     faltan = n - len(reciclados)
 
     nuevos = []
@@ -142,8 +148,8 @@ def _reservar_tabla(cur, n, tabla, pk, seq, fmt, filtro_nuevo):
         codigos_nuevos = _next_from_seq(cur, seq, faltan, fmt)
         for cod in codigos_nuevos:
             cur.execute(
-                f"INSERT INTO mallas.{tabla} ({pk}, estado, cambio) "
-                f"VALUES (?, 'PENDIENTE', 'auto')", (cod,))
+                f"INSERT INTO mallas.{tabla} ({pk}, estado, cambio, updated_at) "
+                f"VALUES (?, 'PENDIENTE', 'auto', GETDATE())", (cod,))
         nuevos = [str(c) for c in codigos_nuevos]
 
     return reciclados + nuevos
@@ -329,20 +335,21 @@ def anular_asignacion(tab, pk_val):
     return resultado
 
 
-def limpiar_pendientes_huerfanos():
-    """Cancela filas PENDIENTE al iniciar la app.
-    PENDIENTE solo existe mientras un dialogo esta abierto — si la app
-    no estaba corriendo, esas filas son huerfanas de un crash anterior.
+def limpiar_pendientes_huerfanos(minutos=30):
+    """Cancela filas PENDIENTE huerfanas al iniciar la app.
+    Solo cancela PENDIENTE con updated_at mas antiguo que `minutos` minutos,
+    para no interferir con sesiones activas en otros PCs.
     Retorna (n_vitros, n_grandes, n_pequenas) cancelados.
     """
+    filtro = f"estado='PENDIENTE' AND updated_at < DATEADD(MINUTE, -{minutos}, GETDATE())"
     cn = conectar()
     try:
         cur = cn.cursor()
-        cur.execute("UPDATE mallas.vitrojet  SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        cur.execute(f"UPDATE mallas.vitrojet  SET estado='CANCELADO' WHERE {filtro}")
         nv = cur.rowcount
-        cur.execute("UPDATE mallas.grandes   SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        cur.execute(f"UPDATE mallas.grandes   SET estado='CANCELADO' WHERE {filtro}")
         ng = cur.rowcount
-        cur.execute("UPDATE mallas.pequenas  SET estado='CANCELADO' WHERE estado='PENDIENTE'")
+        cur.execute(f"UPDATE mallas.pequenas  SET estado='CANCELADO' WHERE {filtro}")
         np_ = cur.rowcount
         cn.commit()
         return nv, ng, np_
