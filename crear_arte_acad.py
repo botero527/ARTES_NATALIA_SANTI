@@ -513,6 +513,25 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
                 tk.messagebox.showerror("Error", f"No se pudo cargar módulo asignaciones:\n{ie}")
                 return
 
+        # Si ya había una reserva anterior en este cajetín, cancelarla antes de pedir nueva
+        if _asignacion_cache[0] is not None:
+            try:
+                from db_app.asignaciones import cancelar as _cancelar_prev
+            except ImportError:
+                try:
+                    from asignaciones import cancelar as _cancelar_prev
+                except Exception:
+                    _cancelar_prev = None
+            if _cancelar_prev:
+                try:
+                    _cancelar_prev(_asignacion_cache[0])
+                except Exception:
+                    pass
+            _asignacion_cache[0] = None
+            entries["VITRO"].delete(0, tk.END)
+            entries["MALLA"].delete(0, tk.END)
+            asig_preview.configure(text="(sin asignar)", fg=_C["muted"])
+
         prop = dialogo_asignacion(parent=root, nombre_plano=nombre_plano)
         if not prop:
             return
@@ -842,15 +861,15 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
             if n2:
                 log_fn(f"  Nivel 2 explosión: {n2} bloques anidados ✔")
             doc.Regen(0)
-            time.sleep(0.25)
+            time.sleep(0.15)
             msp = doc.ModelSpace
 
         except Exception as e_ins:
             log_fn(f"  WARN InsertBlock COM falló ({e_ins}), usando SendCommand...")
             send_cmd(doc, f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-            time.sleep(3)
+            time.sleep(2.5)
             send_cmd(doc, "EXPLODE\nL\n\n")
-            time.sleep(2)
+            time.sleep(1.5)
             msp = doc.ModelSpace
 
     nuevos = objetos_nuevos(msp, handles_antes)
@@ -966,14 +985,14 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     # ── 12. Hatch k2 ──────────────────────────────────────────────────────
     log_fn("[12] Hatch k2...")
     hatch_solido(msp, doc, perim_ent, off_perim, LAYER_K2)
-    time.sleep(0.3)
+    time.sleep(0.1)
     msp = doc.ModelSpace
 
     # ── 13. Hatch k ───────────────────────────────────────────────────────
     log_fn("[13] Hatch k...")
     if bn_ent:
         hatch_solido(msp, doc, bn_ent, off_perim, LAYER_K)
-        time.sleep(0.3)
+        time.sleep(0.1)
         msp = doc.ModelSpace
     else:
         log_fn("  WARN: no se encontró banda negra.")
@@ -1000,14 +1019,14 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                 if not bloque_existe:
                     log_fn(f"  Importando bloque '{BLOQUE_25}' desde cajetines...")
                     send_cmd(doc, f'-INSERT "{abs_caj}"\n0,0,0\n1\n1\n0\n')
-                    time.sleep(3.0)
+                    time.sleep(2.0)
                     send_cmd(doc, "ERASE\nL\n\n")
-                    time.sleep(1.0)
+                    time.sleep(0.5)
                     log_fn(f"  Bloque '{BLOQUE_25}' registrado.")
 
                 def ejecutar_divide(handle_curva):
                     send_cmd(doc, f'CLAYER\n{LAYER_K3}\n')
-                    time.sleep(0.2)
+                    time.sleep(0.1)
                     send_cmd(doc,
                         f'DIVIDE\n'
                         f'(handent "{handle_curva}")\n'
@@ -1016,11 +1035,11 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                         f'Y\n'
                         f'{n_pepas}\n'
                     )
-                    espera = max(2.5, n_pepas * 0.015)
+                    espera = max(2.0, n_pepas * 0.012)
                     log_fn(f"  Esperando {espera:.1f}s (DIVIDE)...")
                     time.sleep(espera)
                     send_cmd(doc, "CLAYER\n0\n")
-                    time.sleep(0.2)
+                    time.sleep(0.1)
 
                 def borrar_k3():
                     _msp = doc.ModelSpace
@@ -1030,7 +1049,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                                 _e.Delete()
                         except Exception:
                             pass
-                    time.sleep(0.2)
+                    time.sleep(0.1)
 
                 ejecutar_divide(off_bn.Handle)
                 log_fn("  Degradé en layer k3 ✔")
@@ -1049,7 +1068,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                     borrar_k3()
                     h_rev = off_bn.Handle
                     send_cmd(doc, f'REVERSE\n(handent "{h_rev}")\n\n')
-                    time.sleep(0.4)
+                    time.sleep(0.2)
                     ejecutar_divide(off_bn.Handle)
                     log_fn("  Degradé invertido ✔")
                 else:
@@ -1061,7 +1080,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
 
     # ── 15. Mover PERIMETRO/BN a PLANES ──────────────────────────────────
     log_fn("[15] Moviendo geometría original a PLANES...")
-    time.sleep(0.5)
+    time.sleep(0.1)
     msp = doc.ModelSpace
     for e in ents_por_patron(msp, PAT_PERIM + PAT_BN):
         try: e.Layer = LAYER_PLANES
@@ -1109,7 +1128,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     # ── 19. Purge ─────────────────────────────────────────────────────────
     log_fn("[19] Purgando layers y bloques sin usar...")
     send_cmd(doc, "-PURGE\nAll\n*\nN\n")
-    time.sleep(1.0)
+    time.sleep(0.5)
 
     # ── Guardar si se indicó ruta ─────────────────────────────────────────
     if ruta_salida:
@@ -1117,7 +1136,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
         carpeta_salida = os.path.dirname(abs_salida)
         if carpeta_salida:
             os.makedirs(carpeta_salida, exist_ok=True)
-        time.sleep(0.5)
+        time.sleep(0.2)
         doc.SaveAs(abs_salida)
         log_fn(f"  Guardado en: {abs_salida} ✔")
     else:

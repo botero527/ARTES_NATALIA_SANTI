@@ -63,22 +63,22 @@ CONN_AZURE = (
 
 # Paleta
 PAL = {
-    "bg":        "#0B0D17",
-    "sidebar":   "#0F1220",
-    "card":      "#131626",
-    "card2":     "#171B2E",
-    "border":    "#1E2540",
-    "accent":    "#4FACFF",
-    "accent2":   "#2980CC",
-    "green":     "#50FA7B",
-    "green2":    "#27AE60",
-    "orange":    "#FFB86C", 
-    "red":       "#FF5555",
+    "bg":        "#0F1117",
+    "sidebar":   "#161B27",
+    "card":      "#1C2333",
+    "card2":     "#222A3E",
+    "border":    "#2E3A55",
+    "accent":    "#3B82F6",
+    "accent2":   "#1D4ED8",
+    "green":     "#10B981",
+    "green2":    "#059669",
+    "orange":    "#F59E0B",
+    "red":       "#EF4444",
     "purple":    "#8B5CF6",
-    "txt":       "#ECF0FF",
-    "txt_mid":   "#7A90B0",
-    "txt_dim":   "#3A4A6A",
-    "log_bg":    "#080A14",
+    "txt":       "#F1F5F9",
+    "txt_mid":   "#94A3B8",
+    "txt_dim":   "#475569",
+    "log_bg":    "#0A0D14",
 }
 
 FONT = lambda s, w="normal": CTkFont(family="Segoe UI", size=s, weight=w)
@@ -178,8 +178,8 @@ def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
             raise RuntimeError("AutoCAD no está abierto")
         log_fn(f"  Abriendo: {os.path.basename(ruta_dwg)}")
         doc = acad.Documents.Open(os.path.abspath(ruta_dwg), False, False)
-        time.sleep(2)
-        try: doc.Activate(); time.sleep(0.5)
+        time.sleep(1.0)
+        try: doc.Activate(); time.sleep(0.2)
         except Exception: pass
         n = _pipeline_acad(doc, log_fn=log_fn, valores_cajetin=valores_cajetin,
                            ruta_salida=ruta_salida, perim_index=perim_index,
@@ -198,21 +198,21 @@ class SideBtn(ctk.CTkButton):
         super().__init__(parent,
             text=f"  {icon}  {text}",
             anchor="w",
-            height=44,
+            height=52,
             corner_radius=8,
             fg_color="transparent",
             hover_color=PAL["border"],
             text_color=PAL["txt_mid"],
-            font=FONT(13),
+            font=FONT(14),
             command=command, **kw)
 
     def set_active(self, active: bool):
         if active:
             self.configure(fg_color=PAL["accent2"], text_color="white",
-                           font=FONT(13, "bold"))
+                           font=FONT(14, "bold"))
         else:
             self.configure(fg_color="transparent", text_color=PAL["txt_mid"],
-                           font=FONT(13))
+                           font=FONT(14))
 
 
 class LogBox(ctk.CTkTextbox):
@@ -241,14 +241,14 @@ class LogBox(ctk.CTkTextbox):
 
 class StatCard(ctk.CTkFrame):
     def __init__(self, parent, label, icon, color, **kw):
-        super().__init__(parent, fg_color=PAL["card"], corner_radius=10,
-                         border_width=1, border_color=PAL["border"], **kw)
-        ctk.CTkLabel(self, text=icon, font=FONT(20)).pack(pady=(12,0))
-        self._val = ctk.CTkLabel(self, text="—", font=FONT(22, "bold"),
+        super().__init__(parent, fg_color=PAL["card"], corner_radius=14,
+                         border_width=2, border_color=PAL["border"], **kw)
+        ctk.CTkLabel(self, text=icon, font=FONT(26)).pack(pady=(16,0))
+        self._val = ctk.CTkLabel(self, text="—", font=FONT(28, "bold"),
                                   text_color=color)
         self._val.pack()
-        ctk.CTkLabel(self, text=label, font=FONT(10),
-                     text_color=PAL["txt_mid"]).pack(pady=(0,10))
+        ctk.CTkLabel(self, text=label, font=FONT(11),
+                     text_color=PAL["txt_mid"]).pack(pady=(4,14))
 
     def set(self, v): self._val.configure(text=f"{v:,}" if isinstance(v, int) else str(v))
 
@@ -274,22 +274,22 @@ class TabArte(ctk.CTkFrame):
 
         self._field(card_in, "Ruta vehículo / versión:", 0)
         self._e_base = ctk.CTkEntry(card_in, textvariable=self._ruta_base,
-                                     height=36, font=FONT(12),
+                                     height=42, font=FONT(12),
                                      fg_color=PAL["card2"], border_color=PAL["border"],
                                      text_color=PAL["accent"])
         self._e_base.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0,6), pady=(2,8))
-        ctk.CTkButton(card_in, text="📂 Explorar", width=110, height=36,
+        ctk.CTkButton(card_in, text="📂 Explorar", width=110, height=42,
                       fg_color=PAL["border"], hover_color=PAL["accent2"],
                       font=FONT(11), command=self._pick_base
                       ).grid(row=1, column=2, pady=(2,8))
 
         self._field(card_in, "Plano DWG original:", 2)
         self._e_dwg = ctk.CTkEntry(card_in, textvariable=self._ruta_dwg,
-                                    height=36, font=FONT(12),
+                                    height=42, font=FONT(12),
                                     fg_color=PAL["card2"], border_color=PAL["border"],
                                     text_color=PAL["accent"])
         self._e_dwg.grid(row=3, column=0, columnspan=2, sticky="ew", padx=(0,6), pady=(2,4))
-        ctk.CTkButton(card_in, text="📂 Explorar", width=110, height=36,
+        ctk.CTkButton(card_in, text="📂 Explorar", width=110, height=42,
                       fg_color=PAL["border"], hover_color=PAL["accent2"],
                       font=FONT(11), command=self._pick_dwg
                       ).grid(row=3, column=2, pady=(2,4))
@@ -301,15 +301,15 @@ class TabArte(ctk.CTkFrame):
 
         self._btns = []
         defs = [
-            ("▶  Extraer Plano",  PAL["green2"],   "#1a6640", self._extraer),
-            ("✦  Crear Arte",     PAL["purple"],   "#5b21b6", self._crear_arte),
-            ("⊕  Buscar Arte",   "#E67E22",        "#ca6f1e", self._buscar),
+            ("⬇  Extraer Plano",  PAL["green2"],   "#1a6640", self._extraer),
+            ("🎨  Crear Arte",     PAL["purple"],   "#5b21b6", self._crear_arte),
+            ("🔍  Buscar Arte",   "#E67E22",        "#ca6f1e", self._buscar),
             ("⚡  Todo en Uno",   "#E63946",        "#b71c2e", self._todo_en_uno),
         ]
         for txt, color, hover, cmd in defs:
-            b = ctk.CTkButton(btn_row, text=txt, width=168, height=46,
+            b = ctk.CTkButton(btn_row, text=txt, width=200, height=52,
                               fg_color=color, hover_color=hover,
-                              font=FONT(12, "bold"), corner_radius=8,
+                              font=FONT(12, "bold"), corner_radius=12,
                               command=cmd)
             b.pack(side="left", padx=6)
             self._btns.append(b)
@@ -325,7 +325,7 @@ class TabArte(ctk.CTkFrame):
 
 
         self._prog = ctk.CTkProgressBar(card_wf, mode="indeterminate",
-                                         height=4, progress_color=PAL["accent"])
+                                         height=6, progress_color=PAL["accent"])
         self._prog.pack(fill="x", pady=(4,0))
 
         # ── Tabla resultados ──────────────────────────────────────────────────
@@ -338,12 +338,19 @@ class TabArte(ctk.CTkFrame):
         import tkinter as tk
         style = ttk.Style()
         style.theme_use("clam")
-        style.configure("AGP.Treeview", background=PAL["card"],
-                        foreground=PAL["txt_mid"], fieldbackground=PAL["card"],
-                        borderwidth=0, font=("Segoe UI", 10), rowheight=28)
-        style.configure("AGP.Treeview.Heading", background=PAL["card2"],
-                        foreground=PAL["accent"], font=("Segoe UI", 9, "bold"),
-                        relief="flat")
+        style.configure("AGP.Treeview",
+            background=PAL["card"],
+            foreground=PAL["txt"],
+            fieldbackground=PAL["card"],
+            borderwidth=0,
+            font=("Segoe UI", 11),
+            rowheight=32)
+        style.configure("AGP.Treeview.Heading",
+            background=PAL["card2"],
+            foreground=PAL["accent"],
+            font=("Segoe UI", 10, "bold"),
+            relief="flat",
+            padding=(8, 6))
         style.map("AGP.Treeview", background=[("selected", PAL["accent2"])],
                   foreground=[("selected","white")])
 
@@ -374,7 +381,7 @@ class TabArte(ctk.CTkFrame):
                       fg_color=PAL["border"], hover_color=PAL["red"],
                       font=FONT(10), command=lambda: self._log.clear()
                       ).pack(side="right")
-        self._log = LogBox(card_log, height=160)
+        self._log = LogBox(card_log, height=180)
         self._log.pack(fill="both", expand=True, pady=(4,0))
 
         self.rowconfigure(3, weight=1)
@@ -556,7 +563,7 @@ class TabArte(ctk.CTkFrame):
             finally:
                 motor.quit()        # libera referencia COM pero NO CoUninitialize
             self._log_fn("Plano extraído ✔", "ok")
-            time.sleep(2.0)
+            time.sleep(0.5)
 
             # ── 2. Crear arte piezas ──────────────────────────────────────────
             n = _crear_arte_autocad(plano, log_fn=lambda m: self._log_fn(m, "dim"),
@@ -713,7 +720,7 @@ class TabBD(ctk.CTkFrame):
         ctk.CTkLabel(bar_in, text="🔍", font=FONT(14)
                      ).grid(row=0, column=0, padx=(0,6))
         self._search = ctk.CTkEntry(bar_in, placeholder_text="Buscar vehículo, código, malla...",
-                                     height=38, font=FONT(12),
+                                     height=44, font=FONT(13),
                                      fg_color=PAL["card2"], border_color=PAL["border"])
         self._search.grid(row=0, column=1, sticky="ew", padx=(0,10))
         self._search.bind("<KeyRelease>", self._on_key)
@@ -722,8 +729,8 @@ class TabBD(ctk.CTkFrame):
         tab_bar.grid(row=0, column=2)
         self._tab_btns = {}
         for i, (lbl, key, icon) in enumerate(self.TABS):
-            b = ctk.CTkButton(tab_bar, text=f"{icon} {lbl}", width=100, height=34,
-                              corner_radius=6, font=FONT(11),
+            b = ctk.CTkButton(tab_bar, text=f"{icon} {lbl}", width=115, height=38,
+                              corner_radius=8, font=FONT(12),
                               fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
                               hover_color=PAL["border"],
                               command=lambda k=key: self._set_tab(k))
@@ -1026,7 +1033,7 @@ class TabGestion(ctk.CTkFrame):
                      ).grid(row=0, column=1, sticky="e", padx=(0,6))
         self._search = ctk.CTkEntry(
             top_in, placeholder_text="Buscar vehículo, código, malla...",
-            height=38, font=FONT(12),
+            height=44, font=FONT(13),
             fg_color=PAL["card2"], border_color=PAL["border"])
         self._search.grid(row=0, column=2, sticky="ew", padx=(0,10))
         self._search.bind("<KeyRelease>", self._on_key)
@@ -1037,8 +1044,8 @@ class TabGestion(ctk.CTkFrame):
         tab_row.grid(row=0, column=3)
         self._tab_btns = {}
         for i, (lbl, key, icon) in enumerate(self.TABS):
-            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=105, height=34,
-                              corner_radius=6, font=FONT(11),
+            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=115, height=38,
+                              corner_radius=8, font=FONT(12),
                               fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
                               hover_color=PAL["border"],
                               command=lambda k=key: self._set_tab(k))
@@ -1889,7 +1896,7 @@ class AGPApp(ctk.CTk):
         self.grid_rowconfigure(0, weight=1)
 
         # ── SIDEBAR ───────────────────────────────────────────────────────────
-        sidebar = ctk.CTkFrame(self, width=220, fg_color=PAL["sidebar"],
+        sidebar = ctk.CTkFrame(self, width=240, fg_color=PAL["sidebar"],
                                corner_radius=0)
         sidebar.grid(row=0, column=0, sticky="nsew")
         sidebar.grid_propagate(False)
@@ -1897,12 +1904,13 @@ class AGPApp(ctk.CTk):
         # Logo
         logo_frame = ctk.CTkFrame(sidebar, fg_color="transparent")
         logo_frame.pack(fill="x", padx=16, pady=(24,8))
-        ctk.CTkLabel(logo_frame, text="AGP", font=FONT(11, "bold"),
+        ctk.CTkLabel(logo_frame, text="AGP", font=FONT(13, "bold"),
                      text_color=PAL["txt_dim"]).pack(anchor="w")
-        ctk.CTkLabel(logo_frame, text="Glass Suite", font=FONT(20, "bold"),
+        ctk.CTkLabel(logo_frame, text="Glass Suite", font=FONT(24, "bold"),
                      text_color=PAL["accent"]).pack(anchor="w")
-        ctk.CTkFrame(sidebar, fg_color=PAL["border"], height=1
-                     ).pack(fill="x", padx=12, pady=10)
+        # 2px accent line below logo
+        ctk.CTkFrame(sidebar, fg_color=PAL["accent"], height=2
+                     ).pack(fill="x", padx=12, pady=(4,10))
 
         # Nav buttons
         self._nav_btns = {}
@@ -1912,12 +1920,20 @@ class AGPApp(ctk.CTk):
             b.pack(fill="x", padx=8, pady=2)
             self._nav_btns[name] = b
 
-        # Footer
+        # Section label below nav buttons
         ctk.CTkFrame(sidebar, fg_color=PAL["border"], height=1
-                     ).pack(fill="x", padx=12, pady=10, side="bottom")
-        ctk.CTkLabel(sidebar, text="AGP Group © 2025",
+                     ).pack(fill="x", padx=12, pady=(12,4))
+        ctk.CTkLabel(sidebar, text="AGP GLASS", font=FONT(9, "bold"),
+                     text_color=PAL["txt_dim"]).pack(anchor="w", padx=16)
+        ctk.CTkLabel(sidebar, text="Suite Ingeniería", font=FONT(9),
+                     text_color=PAL["txt_dim"]).pack(anchor="w", padx=16, pady=(0,8))
+
+        # Footer
+        ctk.CTkLabel(sidebar, text="v2.0  ·  Ingeniería",
                      font=FONT(9), text_color=PAL["txt_dim"]
                      ).pack(side="bottom", pady=8)
+        ctk.CTkFrame(sidebar, fg_color=PAL["border"], height=1
+                     ).pack(fill="x", padx=12, pady=2, side="bottom")
 
         # Acelerador de teclas
         ctk.CTkLabel(sidebar, text="Alt+1 Arte  ·  Alt+2 BD  ·  Alt+3 Scanner",
@@ -1925,9 +1941,31 @@ class AGPApp(ctk.CTk):
                      ).pack(side="bottom", pady=2)
 
         # ── CONTENIDO ─────────────────────────────────────────────────────────
-        self._content = ctk.CTkScrollableFrame(self, fg_color=PAL["bg"],
+        content_wrapper = ctk.CTkFrame(self, fg_color=PAL["bg"], corner_radius=0)
+        content_wrapper.grid(row=0, column=1, sticky="nsew")
+        content_wrapper.grid_columnconfigure(0, weight=1)
+        content_wrapper.grid_rowconfigure(1, weight=1)
+
+        # Header title bar
+        self._header_frame = ctk.CTkFrame(content_wrapper, fg_color=PAL["card"],
+                                           corner_radius=0)
+        self._header_frame.grid(row=0, column=0, sticky="ew")
+        header_inner = ctk.CTkFrame(self._header_frame, fg_color="transparent")
+        header_inner.pack(fill="x", padx=24, pady=(16, 0))
+        self._header_title = ctk.CTkLabel(header_inner, text="",
+                                           font=FONT(22, "bold"),
+                                           text_color=PAL["txt"])
+        self._header_title.pack(anchor="w")
+        self._header_sub = ctk.CTkLabel(header_inner, text="",
+                                         font=FONT(12),
+                                         text_color=PAL["txt_mid"])
+        self._header_sub.pack(anchor="w", pady=(2, 0))
+        ctk.CTkFrame(self._header_frame, fg_color=PAL["border"], height=1
+                     ).pack(fill="x", padx=0, pady=(12, 0))
+
+        self._content = ctk.CTkScrollableFrame(content_wrapper, fg_color=PAL["bg"],
                                                 corner_radius=0)
-        self._content.grid(row=0, column=1, sticky="nsew", padx=0, pady=0)
+        self._content.grid(row=1, column=0, sticky="nsew", padx=0, pady=0)
         self._content.columnconfigure(0, weight=1)
 
         # Header top strip
@@ -1948,6 +1986,13 @@ class AGPApp(ctk.CTk):
 
         self._show("Crear Arte")
 
+    _PAGE_SUBTITLES = {
+        "Crear Arte":   "Pipeline AutoCAD — extraer plano, crear y buscar artes",
+        "Consultar BD": "Base de datos Azure SQL — vitros, mallas, vinilos, pasta plata",
+        "Gestión BD":   "Editar, separar e insertar registros en la BD",
+        "Scanner":      "Escáner de órdenes de producción — barcode → SmartFactory → SAP",
+    }
+
     def _show(self, name):
         if self._active:
             self._frames[self._active].grid_remove()
@@ -1955,6 +2000,8 @@ class AGPApp(ctk.CTk):
         self._frames[name].grid()
         self._nav_btns[name].set_active(True)
         self._active = name
+        self._header_title.configure(text=name)
+        self._header_sub.configure(text=self._PAGE_SUBTITLES.get(name, ""))
 
 
 # ══════════════════════════════════════════════════════════════════════════════
