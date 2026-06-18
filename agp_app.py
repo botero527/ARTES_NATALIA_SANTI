@@ -1004,13 +1004,22 @@ class TabGestion(ctk.CTkFrame):
         top_in.pack(fill="x", padx=14, pady=10)
         top_in.columnconfigure(1, weight=1)
 
-        # Botón separar
+        # Botones acción
+        btn_grp = ctk.CTkFrame(top_in, fg_color="transparent")
+        btn_grp.grid(row=0, column=0, padx=(0,14))
+
         self._btn_sep = ctk.CTkButton(
-            top_in, text="＋  Separar vitro / malla", width=200, height=38,
-            font=FONT(12, "bold"), corner_radius=8,
+            btn_grp, text="＋  Separar vitro / malla", width=195, height=38,
+            font=FONT(11, "bold"), corner_radius=8,
             fg_color=PAL["orange"], hover_color="#b35c00",
             command=self._separar)
-        self._btn_sep.grid(row=0, column=0, padx=(0,14))
+        self._btn_sep.pack(side="left", padx=(0,8))
+
+        ctk.CTkButton(
+            btn_grp, text="📝  Insertar manual", width=155, height=38,
+            font=FONT(11, "bold"), corner_radius=8,
+            fg_color=PAL["green2"], hover_color="#1e5c36",
+            command=self._insertar_manual).pack(side="left")
 
         # Búsqueda
         ctk.CTkLabel(top_in, text="🔍", font=FONT(14)
@@ -1039,7 +1048,7 @@ class TabGestion(ctk.CTkFrame):
         # ── Hint edición ──────────────────────────────────────────────────────
         hint = ctk.CTkFrame(self, fg_color="transparent")
         hint.grid(row=1, column=0, sticky="ew", padx=14, pady=(0,2))
-        ctk.CTkLabel(hint, text="✏  Doble clic sobre una fila para editar sus datos",
+        ctk.CTkLabel(hint, text="✏  Doble clic sobre una fila para editar · Pestañas Vitrojet/Mallas: ver y editar asignaciones · Botón Insertar: agregar pasta de plata, vinilos o glassjet",
                      font=FONT(10), text_color=PAL["txt_dim"]).pack(anchor="w")
 
         # ── Tabla ─────────────────────────────────────────────────────────────
@@ -1281,6 +1290,253 @@ class TabGestion(ctk.CTkFrame):
 
         win.update_idletasks()
         # Centrar sobre la ventana principal
+        try:
+            rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - win.winfo_width()  // 2
+            ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - win.winfo_height() // 2
+            win.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+
+    def _insertar_manual(self):
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+
+        try:
+            root_tk = _tk._default_root
+        except Exception:
+            root_tk = None
+
+        # ── Ventana selector de tabla ─────────────────────────────────────────
+        sel_win = _tk.Toplevel(root_tk)
+        sel_win.title("Insertar manual")
+        sel_win.configure(bg="#1e1e2e")
+        sel_win.resizable(False, False)
+        sel_win.attributes("-topmost", True)
+        if root_tk:
+            sel_win.grab_set()
+
+        _tk.Frame(sel_win, bg=PAL["green2"], height=4).pack(fill="x")
+        _tk.Frame(sel_win, bg="#1e1e2e", height=10).pack()
+        _tk.Label(sel_win, text="📝  Insertar registro manual",
+                  font=("Segoe UI", 14, "bold"), fg="#e2e8f0", bg="#1e1e2e"
+                  ).pack(padx=24, anchor="w")
+        _tk.Label(sel_win, text="Elige la tabla donde quieres insertar:",
+                  font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
+                  ).pack(padx=24, pady=(4,14), anchor="w")
+
+        TABLAS_INS = [
+            ("🪙  Pasta de Plata",  "pasta_plata"),
+            ("🎨  Vinilos",         "vinilos"),
+        ]
+
+        def _abrir(tabla):
+            sel_win.destroy()
+            self._form_insertar(tabla, root_tk)
+
+        for lbl, key in TABLAS_INS:
+            _tk.Button(sel_win, text=lbl, font=("Segoe UI", 11, "bold"),
+                       bg="#2d2d44", fg="#e2e8f0", relief="flat",
+                       activebackground="#3d3d5c", cursor="hand2",
+                       width=28, pady=10,
+                       command=lambda k=key: _abrir(k)
+                       ).pack(fill="x", padx=20, pady=4)
+
+        _tk.Frame(sel_win, bg="#1e1e2e", height=14).pack()
+        sel_win.update_idletasks()
+        try:
+            rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - sel_win.winfo_width()  // 2
+            ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - sel_win.winfo_height() // 2
+            sel_win.geometry(f"+{rx}+{ry}")
+        except Exception:
+            pass
+
+    # Campos de cada tabla: (label, campo_bd, sugerido_o_None, solo_lectura)
+    _FORM_CAMPOS = {
+        "pasta_plata": [
+            ("Consecutivo",  "consecutivo",  "__AUTO__",  True),
+            ("Tipo",         "tipo",         None,        False),
+            ("Vehículo",     "vehiculo",     None,        False),
+            ("Cód. Vehículo","cod_vehiculo", None,        False),
+            ("Versión",      "version",      None,        False),
+            ("Pieza",        "pieza",        None,        False),
+            ("Ruta archivo", "ruta_archivo", None,        False),
+            ("Caso",         "caso",         None,        False),
+        ],
+        "vinilos": [
+            ("Herramental",  "herramental",  "__AUTO__",  True),
+            ("Vehículo",     "vehiculo",     None,        False),
+            ("Cód. Vehículo","cod_vehiculo", None,        False),
+            ("Versión",      "version",      None,        False),
+            ("Pieza",        "pieza",        None,        False),
+            ("Tipo",         "tipo",         None,        False),
+        ],
+    }
+    _FORM_TITULO = {
+        "pasta_plata": ("🪙", "Pasta de Plata", "mallas.pasta_plata"),
+        "vinilos":     ("🎨", "Vinilos",         "mallas.vinilos"),
+    }
+
+    def _form_insertar(self, tabla, root_tk):
+        import tkinter as _tk
+        from tkinter import messagebox as _mb
+
+        icon, titulo, tabla_sql = self._FORM_TITULO[tabla]
+        campos = self._FORM_CAMPOS[tabla]
+
+        def _next_consecutivo():
+            """Calcula el siguiente código según el formato de la tabla."""
+            try:
+                cn2 = db_connect()
+                cur2 = cn2.cursor()
+                if tabla == "pasta_plata":
+                    cur2.execute("SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(consecutivo,3,50) AS INT)),0)+1 FROM mallas.pasta_plata")
+                    n = cur2.fetchone()[0]
+                    resultado = f"S-{n:05d}"
+                elif tabla == "vinilos":
+                    cur2.execute("SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(herramental,4,50) AS INT)),0)+1 FROM mallas.vinilos")
+                    n = cur2.fetchone()[0]
+                    resultado = f"VC-{n:04d}"
+                else:
+                    resultado = ""
+                cn2.close()
+                return resultado
+            except Exception:
+                return "?"
+
+        auto_consecutivo = _next_consecutivo() if tabla in ("pasta_plata", "vinilos") else None
+
+        win = _tk.Toplevel(root_tk)
+        win.title(f"Insertar — {titulo}")
+        win.configure(bg="#1e1e2e")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        if root_tk:
+            win.grab_set()
+
+        _tk.Frame(win, bg=PAL["green2"], height=4).pack(fill="x")
+        _tk.Frame(win, bg="#1e1e2e", height=10).pack()
+        _tk.Label(win, text=f"{icon}  Insertar — {titulo}",
+                  font=("Segoe UI", 14, "bold"), fg="#e2e8f0", bg="#1e1e2e"
+                  ).pack(anchor="w", padx=24, pady=(0,2))
+        _tk.Label(win, text="Completa los datos del nuevo registro:",
+                  font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
+                  ).pack(anchor="w", padx=24, pady=(0,12))
+        _tk.Frame(win, bg="#2d2d44", height=1).pack(fill="x", padx=18, pady=(0,12))
+
+        entries_ins = {}
+        for lbl_txt, campo, sugerido, readonly in campos:
+            row_f = _tk.Frame(win, bg="#1e1e2e")
+            row_f.pack(fill="x", padx=24, pady=4)
+            _tk.Label(row_f, text=lbl_txt, width=17, anchor="e",
+                      font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
+                      ).pack(side="left", padx=(0,10))
+
+            val_inicial = auto_consecutivo if sugerido == "__AUTO__" else (sugerido or "")
+            bg_ent = "#1a2a1a" if readonly else "#2d2d44"
+            ent = _tk.Entry(row_f, width=40,
+                            font=("Segoe UI", 10),
+                            bg=bg_ent, fg="#e2e8f0" if not readonly else "#6ee7b7",
+                            insertbackground="#e2e8f0",
+                            relief="flat", bd=6,
+                            state="normal")
+            ent.pack(side="left", ipady=4)
+            ent.insert(0, str(val_inicial))
+            if readonly:
+                ent.configure(state="readonly")
+                _tk.Label(row_f, text="auto", font=("Segoe UI", 7, "bold"),
+                          fg=PAL["green2"], bg="#1e1e2e", padx=4).pack(side="left", padx=4)
+            entries_ins[campo] = ent
+
+        _tk.Frame(win, bg="#1e1e2e", height=6).pack()
+        _tk.Frame(win, bg="#2d2d44", height=1).pack(fill="x", padx=18, pady=(0,12))
+
+        btn_f   = _tk.Frame(win, bg="#1e1e2e")
+        btn_f.pack(fill="x", padx=24, pady=(0,18))
+        msg_lbl = _tk.Label(btn_f, text="", font=("Segoe UI", 9),
+                            fg="#22c55e", bg="#1e1e2e")
+        msg_lbl.pack(anchor="w", pady=(0,8))
+
+        def _insertar():
+            # Recoger valores del formulario (saltando el PK auto)
+            pk_auto = {"pasta_plata": "consecutivo", "vinilos": "herramental"}.get(tabla)
+            cols_datos = [c for _, c, _, _ in campos if c != pk_auto]
+            vals_datos = [entries_ins[c].get().strip() or None for c in cols_datos]
+
+            # Validar que haya al menos un campo con dato
+            if not any(vals_datos):
+                msg_lbl.configure(text="✘ Completa al menos un campo", fg="#ef4444")
+                return
+
+            try:
+                cn = db_connect()
+                if pk_auto:
+                    # INSERT...SELECT atómico: calcula MAX e inserta en una sola
+                    # operación — Azure SQL no puede entregar el mismo número a
+                    # dos conexiones concurrentes porque el SELECT con UPDLOCK
+                    # bloquea la lectura hasta que el INSERT confirma.
+                    if tabla == "pasta_plata":
+                        expr_pk = ("'S-' + RIGHT('00000' + CAST("
+                                   "ISNULL(MAX(TRY_CAST(SUBSTRING(consecutivo,3,50) AS INT)),0)+1"
+                                   " AS VARCHAR(10)), 5)")
+                    else:  # vinilos
+                        expr_pk = ("'VC-' + RIGHT('0000' + CAST("
+                                   "ISNULL(MAX(TRY_CAST(SUBSTRING(herramental,4,50) AS INT)),0)+1"
+                                   " AS VARCHAR(10)), 4)")
+
+                    all_cols = [pk_auto] + cols_datos
+                    placeholders_datos = ",".join(["?"] * len(cols_datos))
+                    sql = (
+                        f"INSERT INTO {tabla_sql} ({','.join(all_cols)}) "
+                        f"SELECT {expr_pk}, {placeholders_datos} "
+                        f"FROM {tabla_sql} WITH (UPDLOCK, HOLDLOCK)"
+                    )
+                    cur = cn.cursor()
+                    cur.execute(sql, vals_datos)
+                    # Obtener el código que quedó insertado para mostrarlo
+                    pk_col_name = pk_auto
+                    cur.execute(f"SELECT TOP 1 {pk_col_name} FROM {tabla_sql} "
+                                f"ORDER BY {pk_col_name} DESC")
+                    pk_insertado = cur.fetchone()[0]
+                else:
+                    all_cols = [c for _, c, _, _ in campos]
+                    vals_all  = [entries_ins[c].get().strip() or None for c in all_cols]
+                    placeholders = ",".join(["?"] * len(all_cols))
+                    sql = f"INSERT INTO {tabla_sql} ({','.join(all_cols)}) VALUES ({placeholders})"
+                    cn.execute(sql, vals_all)
+                    pk_insertado = None
+
+                cn.commit()
+                cn.close()
+
+                # Actualizar el campo readonly con el código real insertado
+                if pk_auto and pk_insertado:
+                    entries_ins[pk_auto].configure(state="normal")
+                    entries_ins[pk_auto].delete(0, _tk.END)
+                    entries_ins[pk_auto].insert(0, str(pk_insertado))
+                    entries_ins[pk_auto].configure(state="readonly")
+
+                msg_lbl.configure(
+                    text=f"✔ Insertado: {pk_insertado or 'OK'}", fg="#22c55e")
+                win.after(1500, win.destroy)
+                self.after(200, self._do_search)
+            except Exception as ex:
+                msg_lbl.configure(text=f"✘ Error: {str(ex)[:90]}", fg="#ef4444")
+
+        _tk.Button(btn_f, text="  Insertar registro  ",
+                   font=("Segoe UI", 10, "bold"),
+                   bg=PAL["green2"], fg="white", relief="flat",
+                   activebackground="#1e5c36", cursor="hand2",
+                   command=_insertar
+                   ).pack(side="left", ipadx=6, ipady=6, padx=(0,10))
+
+        _tk.Button(btn_f, text="  Cancelar  ",
+                   font=("Segoe UI", 10),
+                   bg="#2d2d44", fg="#94a3b8", relief="flat",
+                   activebackground="#3d3d5c", cursor="hand2",
+                   command=win.destroy
+                   ).pack(side="left", ipadx=6, ipady=6)
+
+        win.update_idletasks()
         try:
             rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - win.winfo_width()  // 2
             ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - win.winfo_height() // 2
