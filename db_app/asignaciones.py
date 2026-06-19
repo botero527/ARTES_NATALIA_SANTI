@@ -25,7 +25,6 @@ UPDLOCK + READPAST garantiza que dos PCs no reclamen el mismo CANCELADO.
 """
 
 import os, sys
-import pyodbc
 
 _DIR = os.path.dirname(__file__)
 sys.path.insert(0, _DIR)

@@ -7,7 +7,7 @@ AGP Glass — App unificada
 Requiere: customtkinter, pyodbc, pywin32
 """
 
-import os, sys, time, threading, subprocess
+import os, sys, time, threading, subprocess, traceback
 
 try:
     import customtkinter as ctk
@@ -19,6 +19,11 @@ except ImportError:
     mb.showerror("Dependencia faltante",
                  "Falta customtkinter.\nEjecuta:  pip install customtkinter")
     sys.exit(1)
+
+try:
+    import pymssql as _pymssql
+except ImportError:
+    _pymssql = None
 
 try:
     import pyodbc
@@ -98,16 +103,48 @@ MONO = lambda s=11: CTkFont(family="Consolas", size=s)
 # ══════════════════════════════════════════════════════════════════════════════
 #  BD — helpers
 # ══════════════════════════════════════════════════════════════════════════════
+# Wrapper para que pymssql acepte placeholders '?' igual que pyodbc
+class _CursorWrap:
+    def __init__(self, cur): self._c = cur
+    def execute(self, sql, params=()):
+        return self._c.execute(sql.replace("?", "%s"), params or ())
+    def executemany(self, sql, seq):
+        return self._c.executemany(sql.replace("?", "%s"), seq)
+    def __getattr__(self, n): return getattr(self._c, n)
+
+class _ConnWrap:
+    def __init__(self, conn): self._c = conn
+    def cursor(self): return _CursorWrap(self._c.cursor())
+    def execute(self, sql, params=()):
+        cur = self.cursor(); cur.execute(sql, params); return cur
+    def commit(self):   self._c.commit()
+    def rollback(self): self._c.rollback()
+    def close(self):    self._c.close()
+    def __enter__(self): return self
+    def __exit__(self, *a): self._c.__exit__(*a)
+
 def db_connect():
-    if pyodbc is None:
-        raise RuntimeError("pyodbc no instalado")
-    for drv in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
-        try:
-            cs = CONN_AZURE.replace("ODBC Driver 17 for SQL Server", drv)
-            return pyodbc.connect(cs, timeout=20)
-        except Exception:
-            continue
-    raise RuntimeError("No se pudo conectar a Azure SQL")
+    if _pymssql is None:
+        raise RuntimeError("pymssql no disponible — recompila el .exe")
+    try:
+        conn = _pymssql.connect(
+            server="agpcolombia.database.windows.net",
+            port=1433,
+            user="DevIngenieria",
+            password="HiJE068i0LQVrwA",
+            database="AGP_Ingenieria",
+            timeout=20,
+            login_timeout=20,
+            charset="UTF-8",
+            tds_version="7.3",
+        )
+        return _ConnWrap(conn)
+    except Exception as e:
+        raise RuntimeError(
+            f"No se pudo conectar a la base de datos.\n"
+            f"Verifica que tienes acceso a internet o red interna.\n"
+            f"Detalle: {e}"
+        )
 
 def db_query(sql, params=()):
     conn = db_connect()
@@ -189,9 +226,15 @@ def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
             raise RuntimeError("AutoCAD no está abierto")
         log_fn(f"  Abriendo: {os.path.basename(ruta_dwg)}")
         doc = acad.Documents.Open(os.path.abspath(ruta_dwg), False, False)
-        time.sleep(1.0)
-        try: doc.Activate(); time.sleep(0.2)
+        time.sleep(2.0)
+        try: doc.Activate(); time.sleep(0.5)
         except Exception: pass
+        # Esperar a que AutoCAD termine de cargar el documento
+        for _ in range(20):
+            try:
+                if doc.FullName: break
+            except Exception:
+                time.sleep(0.5)
         n = _pipeline_acad(doc, log_fn=log_fn, valores_cajetin=valores_cajetin,
                            ruta_salida=ruta_salida, perim_index=perim_index,
                            compensar=compensar)
@@ -199,6 +242,59 @@ def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
     finally:
         if not _com_ya_init:
             pythoncom.CoUninitialize()
+
+# ══════════════════════════════════════════════════════════════════════════════
+#  HELPER — copiar desde treeview
+# ══════════════════════════════════════════════════════════════════════════════
+def _setup_tree_copy(tree, toast_widget=None):
+    """
+    Estilo Excel: click recuerda la celda, Ctrl+C copia ese valor.
+    Sin celda seleccionada, Ctrl+C copia toda la fila.
+    """
+    _sel = {"item": None, "col": None}   # celda actualmente recordada
+
+    def _toast(msg):
+        if toast_widget is None:
+            return
+        try:
+            toast_widget.configure(text=msg, text_color="#22c55e")
+            toast_widget.after(1800, lambda: toast_widget.configure(
+                text="", text_color=PAL["txt_dim"]))
+        except Exception:
+            pass
+
+    def _on_click(event):
+        item = tree.identify_row(event.y)
+        col  = tree.identify_column(event.x)
+        if item and col:
+            _sel["item"] = item
+            _sel["col"]  = int(col.lstrip("#")) - 1
+
+    def _on_ctrl_c(event):
+        item = _sel["item"]
+        col  = _sel["col"]
+        # Si hay celda recordada úsala; si no, copia toda la fila seleccionada
+        if item and col is not None:
+            try:
+                vals = tree.item(item, "values")
+                val  = str(vals[col]) if col < len(vals) else ""
+                if val and val not in ("—", ""):
+                    tree.clipboard_clear()
+                    tree.clipboard_append(val)
+                    _toast(f"✔  {val[:60]}")
+                    return
+            except Exception:
+                pass
+        sel = tree.selection()
+        if sel:
+            vals = tree.item(sel[0], "values")
+            tree.clipboard_clear()
+            tree.clipboard_append("\t".join(str(v) for v in vals))
+            _toast("Fila copiada ✔")
+
+    tree.bind("<ButtonRelease-1>", _on_click, add=True)
+    tree.bind("<Control-c>",       _on_ctrl_c, add=True)
+    tree.bind("<Control-C>",       _on_ctrl_c, add=True)
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  WIDGETS REUTILIZABLES
@@ -387,6 +483,7 @@ class TabArte(ctk.CTkFrame):
         sb.pack(side="right", fill="y", pady=6)
         self._tree.configure(yscrollcommand=sb.set)
         self._tree.bind("<Double-1>", self._on_doble_click)
+        _setup_tree_copy(self._tree)
 
         ctk.CTkLabel(card_tbl, text="  Doble clic en fila verde → superponer en AutoCAD",
                      font=FONT(10), text_color=PAL["txt_dim"]).pack(anchor="w")
@@ -616,7 +713,8 @@ class TabArte(ctk.CTkFrame):
                     self._log_fn(f"Pieza {i+1}: {e}", "warn")
 
         except Exception as e:
-            self._log_fn(str(e), "err")
+            self._log_fn(f"ERROR: {e}", "err")
+            self._log_fn(traceback.format_exc(), "err")
         finally:
             pythoncom.CoUninitialize()
 
@@ -794,19 +892,24 @@ class TabBD(ctk.CTkFrame):
         card_tbl.grid(row=3, column=0, sticky="nsew", padx=4, pady=4)
 
         frm = ctk.CTkFrame(card_tbl, fg_color="transparent")
-        frm.pack(fill="both", expand=True, padx=8, pady=8)
+        frm.pack(fill="both", expand=True, padx=8, pady=(8,0))
+        frm.grid_rowconfigure(0, weight=1)
+        frm.grid_columnconfigure(0, weight=1)
 
         self._tree = ttv.Treeview(frm, style="AGP.Treeview", show="headings", height=18)
-        self._tree.pack(side="left", fill="both", expand=True)
+        self._tree.grid(row=0, column=0, sticky="nsew")
         sb = ttv.Scrollbar(frm, orient="vertical", command=self._tree.yview)
-        sb.pack(side="right", fill="y")
-        self._tree.configure(yscrollcommand=sb.set)
+        sb.grid(row=0, column=1, sticky="ns")
+        sb_x = ttv.Scrollbar(frm, orient="horizontal", command=self._tree.xview)
+        sb_x.grid(row=1, column=0, sticky="ew")
+        self._tree.configure(yscrollcommand=sb.set, xscrollcommand=sb_x.set)
 
         self._lbl_count = ctk.CTkLabel(card_tbl, text="",
                                         font=FONT(10), text_color=PAL["txt_dim"])
         self._lbl_count.pack(anchor="e", padx=12, pady=(0,6))
 
         self._build_tree_cols("vitrojet")
+        _setup_tree_copy(self._tree, self._lbl_count)
         # No buscar en frío — se carga cuando el usuario entra a la pestaña
 
     _COL_W = {
@@ -865,8 +968,12 @@ class TabBD(ctk.CTkFrame):
                 sql    = sql_tpl.format(where="")
             rows = db_query(sql, params)
         except Exception as e:
-            self.after(0, lambda: self._lbl_count.configure(
-                text=f"Error BD: {str(e)[:80]}", text_color=PAL["red"]))
+            err = str(e)
+            self.after(0, lambda m=err: (
+                [self._tree.delete(i) for i in self._tree.get_children()],
+                self._tree.insert("", "end", values=(f"⚠  {m[:120]}",) + ("",) * (len(self._tree["columns"])-1)),
+                self._lbl_count.configure(text="Sin conexión a BD", text_color=PAL["red"])
+            ))
             return
         self.after(0, self._fill, rows, fields, headers)
 
@@ -1098,13 +1205,17 @@ class TabGestion(ctk.CTkFrame):
         card_tbl.grid(row=2, column=0, sticky="nsew", padx=4, pady=4)
 
         frm = ctk.CTkFrame(card_tbl, fg_color="transparent")
-        frm.pack(fill="both", expand=True, padx=8, pady=8)
+        frm.pack(fill="both", expand=True, padx=8, pady=(8,0))
+        frm.grid_rowconfigure(0, weight=1)
+        frm.grid_columnconfigure(0, weight=1)
 
         self._tree = ttv.Treeview(frm, style="AGP.Treeview", show="headings", height=22)
-        self._tree.pack(side="left", fill="both", expand=True)
+        self._tree.grid(row=0, column=0, sticky="nsew")
         sb = ttv.Scrollbar(frm, orient="vertical", command=self._tree.yview)
-        sb.pack(side="right", fill="y")
-        self._tree.configure(yscrollcommand=sb.set)
+        sb.grid(row=0, column=1, sticky="ns")
+        sb_x = ttv.Scrollbar(frm, orient="horizontal", command=self._tree.xview)
+        sb_x.grid(row=1, column=0, sticky="ew")
+        self._tree.configure(yscrollcommand=sb.set, xscrollcommand=sb_x.set)
         self._tree.bind("<Double-1>", self._on_doble_click)
 
         self._lbl_count = ctk.CTkLabel(card_tbl, text="",
@@ -1112,6 +1223,7 @@ class TabGestion(ctk.CTkFrame):
         self._lbl_count.pack(anchor="e", padx=12, pady=(0,6))
 
         self._build_cols("vitrojet")
+        _setup_tree_copy(self._tree, self._lbl_count)
         # No llamar _do_search() aquí — se llama cuando el usuario entra a la pestaña
 
     def _build_cols(self, tab):
@@ -1154,8 +1266,12 @@ class TabGestion(ctk.CTkFrame):
                 sql    = sql_tpl.format(where="")
             rows = db_query(sql, params)
         except Exception as e:
-            self.after(0, lambda: self._lbl_count.configure(
-                text=f"Error BD: {str(e)[:80]}", text_color=PAL["red"]))
+            err = str(e)
+            self.after(0, lambda m=err: (
+                [self._tree.delete(i) for i in self._tree.get_children()],
+                self._tree.insert("", "end", values=(f"⚠  {m[:120]}",) + ("",) * (len(self._tree["columns"])-1)),
+                self._lbl_count.configure(text="Sin conexión a BD", text_color=PAL["red"])
+            ))
             return
         self.after(0, self._fill, rows, fields, headers)
 
@@ -1753,6 +1869,8 @@ class TabScanner(ctk.CTkFrame):
 
         frm_h = ctk.CTkFrame(card_hist, fg_color="transparent")
         frm_h.pack(fill="x", padx=10, pady=6)
+        frm_h.grid_rowconfigure(0, weight=1)
+        frm_h.grid_columnconfigure(0, weight=1)
         self._tree_hist = _ttk.Treeview(
             frm_h, style="Hist.Treeview",
             columns=("hora","orden","zfer","vitro","mallas"),
@@ -1763,11 +1881,15 @@ class TabScanner(ctk.CTkFrame):
                              ("mallas",340,"Mallas")]:
             self._tree_hist.heading(col, text=lbl)
             self._tree_hist.column(col, width=w, minwidth=40)
-        self._tree_hist.pack(side="left", fill="x", expand=True)
+        self._tree_hist.grid(row=0, column=0, sticky="nsew")
         sb_h = _ttk.Scrollbar(frm_h, orient="vertical",
                                command=self._tree_hist.yview)
-        sb_h.pack(side="right", fill="y")
-        self._tree_hist.configure(yscrollcommand=sb_h.set)
+        sb_h.grid(row=0, column=1, sticky="ns")
+        sb_hx = _ttk.Scrollbar(frm_h, orient="horizontal",
+                                command=self._tree_hist.xview)
+        sb_hx.grid(row=1, column=0, sticky="ew")
+        self._tree_hist.configure(yscrollcommand=sb_h.set, xscrollcommand=sb_hx.set)
+        _setup_tree_copy(self._tree_hist)
         self._tree_hist.bind("<Double-1>", self._hist_click)
 
         self._zona.grid_remove()
@@ -1914,6 +2036,58 @@ class AGPApp(ctk.CTk):
         self._frames = {}
         self._build()
         threading.Thread(target=self._limpiar_pendientes, daemon=True).start()
+        threading.Thread(target=self._test_conexion, daemon=True).start()
+
+    def _test_conexion(self):
+        """Prueba la conexión al arrancar y muestra popup claro si falla."""
+        import time
+        time.sleep(1.5)  # esperar que la UI cargue
+        try:
+            db_connect().close()
+        except Exception as e:
+            msg = str(e)
+            self.after(0, lambda: self._mostrar_error_bd(msg))
+
+    def _mostrar_error_bd(self, msg):
+        import tkinter as _tk
+        win = _tk.Toplevel(self)
+        win.title("Sin conexión a la base de datos")
+        win.configure(bg="#1e1e2e")
+        win.resizable(False, False)
+        win.attributes("-topmost", True)
+        win.grab_set()
+
+        _tk.Frame(win, bg="#ef4444", height=5).pack(fill="x")
+        _tk.Label(win, text="⚠  Sin conexión a la base de datos",
+                  font=("Segoe UI", 14, "bold"), fg="#fca5a5", bg="#1e1e2e"
+                  ).pack(padx=28, pady=(18, 6), anchor="w")
+
+        _tk.Label(win, text=msg, font=("Segoe UI", 10), fg="#94a3b8",
+                  bg="#1e1e2e", wraplength=440, justify="left"
+                  ).pack(padx=28, pady=(0, 14), anchor="w")
+
+        _tk.Frame(win, bg="#2d2d44", height=1).pack(fill="x", padx=20, pady=(0,12))
+
+        soluciones = (
+            "Posibles causas:\n"
+            "  1. Falta el driver ODBC  →  ejecuta INSTALAR_DRIVER.bat\n"
+            "  2. Sin internet o red interna\n"
+            "  3. Firewall bloqueando el puerto 1433"
+        )
+        _tk.Label(win, text=soluciones, font=("Segoe UI", 10),
+                  fg="#e2e8f0", bg="#1e1e2e", justify="left"
+                  ).pack(padx=28, pady=(0, 20), anchor="w")
+
+        _tk.Button(win, text="  Cerrar  ", font=("Segoe UI", 10, "bold"),
+                   bg="#3b82f6", fg="white", relief="flat",
+                   activebackground="#2563eb", cursor="hand2",
+                   command=win.destroy
+                   ).pack(pady=(0, 20))
+
+        win.update_idletasks()
+        x = self.winfo_rootx() + self.winfo_width()  // 2 - win.winfo_reqwidth()  // 2
+        y = self.winfo_rooty() + self.winfo_height() // 2 - win.winfo_reqheight() // 2
+        win.geometry(f"+{x}+{y}")
 
     def _limpiar_pendientes(self):
         try:
@@ -2049,6 +2223,8 @@ class AGPApp(ctk.CTk):
         self._active = name
         self._header_title.configure(text=name)
         self._header_sub.configure(text=self._PAGE_SUBTITLES.get(name, ""))
+        # Forzar redibujado del layout antes de cargar datos (evita vista compacta)
+        self.update_idletasks()
         # Refrescar BD al entrar a esas pestañas (datos siempre actualizados)
         if name in ("Consultar BD", "Gestión BD"):
             self._frames[name].refresh()

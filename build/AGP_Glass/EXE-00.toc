@@ -70,14 +70,6 @@
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_pywintypes.py',
    'PYSOURCE'),
-  ('pyi_rth_pythoncom',
-   'C:\\Users\\abotero\\OneDrive - AGP '
-   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_pythoncom.py',
-   'PYSOURCE'),
-  ('pyi_rth__tkinter',
-   'C:\\Users\\abotero\\OneDrive - AGP '
-   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
-   'PYSOURCE'),
   ('pyi_rth_pkgutil',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_pkgutil.py',
@@ -86,6 +78,14 @@
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_multiprocessing.py',
    'PYSOURCE'),
+  ('pyi_rth_pythoncom',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_pythoncom.py',
+   'PYSOURCE'),
+  ('pyi_rth__tkinter',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth__tkinter.py',
+   'PYSOURCE'),
   ('agp_app',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\agp_app.py',
@@ -93,7 +93,7 @@
  [],
  False,
  False,
- 1781798743,
+ 1781868599,
  [('runw.exe',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',

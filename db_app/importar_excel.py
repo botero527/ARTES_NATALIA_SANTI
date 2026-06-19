@@ -7,8 +7,31 @@ El Excel es la fuente de verdad.
 """
 
 import os, sys, time, datetime
-import pyodbc
 import openpyxl
+
+try:
+    import pymssql as _pymssql
+except ImportError:
+    _pymssql = None
+
+# Wrapper para compatibilidad con placeholders '?' (pyodbc) → '%s' (pymssql)
+class _CursorWrap:
+    def __init__(self, cur): self._c = cur
+    def execute(self, sql, params=()):
+        return self._c.execute(sql.replace("?", "%s"), params or ())
+    def executemany(self, sql, seq):
+        return self._c.executemany(sql.replace("?", "%s"), seq)
+    def __getattr__(self, n): return getattr(self._c, n)
+
+class _ConnWrap:
+    def __init__(self, conn): self._c = conn
+    def cursor(self): return _CursorWrap(self._c.cursor())
+    def commit(self):   self._c.commit()
+    def rollback(self): self._c.rollback()
+    def close(self):    self._c.close()
+    autocommit = False
+    def __enter__(self): return self
+    def __exit__(self, *a): self._c.__exit__(*a)
 
 _EXCEL_DEFAULT = (
     r"C:\Users\abotero\OneDrive - AGP GROUP"
@@ -20,14 +43,6 @@ _EXCEL_DEFAULT = (
 # Variable de entorno AGP_EXCEL para sobreescribir la ruta si es necesario.
 EXCEL = os.environ.get("AGP_EXCEL", _EXCEL_DEFAULT)
 
-CONN_STR = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=agpcolombia.database.windows.net,1433;"
-    "DATABASE=AGP_Ingenieria;"
-    "UID=DevIngenieria;"
-    "PWD=HiJE068i0LQVrwA;"
-    "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=30;"
-)
 
 MAX_VACIAS  = 500      # filas consecutivas col-A-vacía = fin real de datos
 MAX_FILAS   = 2_000_000  # tope de seguridad extremo — nunca debería alcanzarse
@@ -51,15 +66,23 @@ def clean(v, maxlen=None):
     return s[:maxlen] if maxlen and len(s) > maxlen else s
 
 def conectar():
-    for drv in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
-        try:
-            cs = CONN_STR.replace("ODBC Driver 17 for SQL Server", drv)
-            c = pyodbc.connect(cs, timeout=30)
-            c.autocommit = False
-            return c
-        except Exception:
-            continue
-    raise RuntimeError("No se pudo conectar — instala ODBC Driver 17/18.")
+    if _pymssql is None:
+        raise RuntimeError("pymssql no disponible — recompila el .exe")
+    try:
+        conn = _pymssql.connect(
+            server="agpcolombia.database.windows.net",
+            port=1433,
+            user="DevIngenieria",
+            password="HiJE068i0LQVrwA",
+            database="AGP_Ingenieria",
+            timeout=30,
+            login_timeout=30,
+            charset="UTF-8",
+            tds_version="7.3",
+        )
+        return _ConnWrap(conn)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar a la base de datos.\nDetalle: {e}")
 
 def _normalizar(s):
     """Normaliza para comparar nombres de hojas ignorando encoding de Ñ/tildes."""
@@ -169,7 +192,7 @@ def _bulk_sync(nombre, ws, sql_delete, sql_insert, build_row_fn, pk_index=0):
                 cn.commit()
                 ok += len(lote)
                 log(f"  {nombre}: {n}/{n_lotes} — {ok:,} insertados", "dim")
-            except pyodbc.OperationalError:
+            except Exception:
                 log(f"  {nombre}: reconectando (lote {n})...", "warn")
                 try: cn.close()
                 except Exception: pass
@@ -378,7 +401,7 @@ def importar_vitrojet(ws):
 
 def importar_grandes(ws):
     def build(r):
-        c = clean(r[0], 30)
+        c = clean(r[0], 30) 
         if not c:
             return None
         desc = clean(r[2], 200) if len(r) > 2 else None

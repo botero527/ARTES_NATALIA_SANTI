@@ -1491,6 +1491,14 @@
   ('py_compile',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\py_compile.py',
    'PYMODULE'),
+  ('pymssql',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\pymssql\\__init__.py',
+   'PYMODULE'),
+  ('pymssql.exceptions',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\pymssql\\exceptions.py',
+   'PYMODULE'),
   ('pythoncom',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\pythoncom.py',
@@ -1650,6 +1658,9 @@
    'PYMODULE'),
   ('urllib.response',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\urllib\\response.py',
+   'PYMODULE'),
+  ('uuid',
+   'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\uuid.py',
    'PYMODULE'),
   ('win32com',
    'C:\\Users\\abotero\\OneDrive - AGP '

@@ -16,12 +16,17 @@ a = Analysis(
     datas=[
         # CustomTkinter necesita sus assets (temas, imágenes)
         ('.venv\\Lib\\site-packages\\customtkinter', 'customtkinter'),
+        # Script de instalación del driver ODBC (se copia al lado del .exe)
+        ('INSTALAR_DRIVER.bat', '.'),
     ],
     hiddenimports=[
         'db_app.asignaciones',
         'db_app.importar_excel',
         'crear_arte_acad',
         'autocad_ops',
+        'pymssql',
+        'pymssql._pymssql',
+        'pymssql._mssql',
         'pyodbc',
         'win32com.client',
         'win32com.server',
@@ -75,3 +80,10 @@ coll = COLLECT(
     upx_exclude=[],
     name='AGP_Glass',
 )
+
+# Copiar INSTALAR_DRIVER.bat al lado del .exe (no dentro de _internal)
+import shutil
+_bat_src = os.path.join(SPECPATH, 'INSTALAR_DRIVER.bat')
+_bat_dst = os.path.join(DISTPATH, 'AGP_Glass', 'INSTALAR_DRIVER.bat')
+if os.path.isfile(_bat_src):
+    shutil.copy2(_bat_src, _bat_dst)
