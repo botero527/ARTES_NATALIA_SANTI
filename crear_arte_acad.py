@@ -124,7 +124,8 @@ def alerta(titulo, msg):
 
 
 def alerta_stop(titulo, msg):
-    ctypes.windll.user32.MessageBoxW(0, msg, titulo, 0x10)
+    # MB_ICONERROR | MB_TOPMOST
+    ctypes.windll.user32.MessageBoxW(0, msg, titulo, 0x10 | 0x40000)
 
 
 def send_cmd(doc, cmd, retries=8, delay=0.6):
@@ -1068,7 +1069,7 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
                     "Sí = quedó bien\n"
                     "No = invertir automáticamente",
                     "AGP Arte Maker — Verificar degradé",
-                    0x24
+                    0x24 | 0x40000  # MB_YESNO | MB_TOPMOST
                 )
                 if respuesta == 7:
                     log_fn("  Invirtiendo degradé...")
@@ -1141,11 +1142,24 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
     if ruta_salida:
         abs_salida = os.path.abspath(ruta_salida)
         carpeta_salida = os.path.dirname(abs_salida)
+        log_fn(f"  Guardando en: {abs_salida}")
         if carpeta_salida:
-            os.makedirs(carpeta_salida, exist_ok=True)
+            try:
+                os.makedirs(carpeta_salida, exist_ok=True)
+            except Exception as e:
+                raise RuntimeError(
+                    f"No se pudo crear la carpeta de destino:\n{carpeta_salida}\n\n"
+                    f"Verifica que tienes acceso a esa ruta de red.\nDetalle: {e}"
+                )
         time.sleep(0.2)
-        doc.SaveAs(abs_salida)
-        log_fn(f"  Guardado en: {abs_salida} ✔")
+        try:
+            doc.SaveAs(abs_salida)
+        except Exception as e:
+            raise RuntimeError(
+                f"AutoCAD no pudo guardar el archivo:\n{abs_salida}\n\n"
+                f"Verifica acceso a la carpeta de red y que AutoCAD tenga permisos.\nDetalle: {e}"
+            )
+        log_fn(f"  Guardado ✔")
     else:
         send_cmd(doc, "QSAVE\n")
         time.sleep(0.5)

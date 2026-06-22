@@ -33,13 +33,7 @@ class _ConnWrap:
     def __enter__(self): return self
     def __exit__(self, *a): self._c.__exit__(*a)
 
-_EXCEL_DEFAULT = (
-    r"C:\Users\abotero\OneDrive - AGP GROUP"
-    r"\GRP - INGENIERIA PROYECTOS 2022 - Colombia - HERRAMENTALES 2020"
-    r"\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
-    # ↑ CAMBIAR esta ruta por la ruta de red cuando la tengas
-    # Ejemplo: r"\\192.168.2.37\ingenieria\...\LISTADO DE MALLAS Y GLASSJET 2025.xlsx"
-)
+_EXCEL_DEFAULT = r"C:\Users\abotero\Downloads\LISTADO DE MALLAS Y GLASSJET 2025 (2).xlsx"
 # Variable de entorno AGP_EXCEL para sobreescribir la ruta si es necesario.
 EXCEL = os.environ.get("AGP_EXCEL", _EXCEL_DEFAULT)
 

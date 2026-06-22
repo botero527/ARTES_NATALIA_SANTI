@@ -164,21 +164,30 @@ def _ruta_planos(ruta_dwg):
     return dest
 
 def _ruta_arte_salida(ruta_dwg, malla="", pieza="", nombre_archivo=""):
+    # Siempre guarda en ARTES/BN/ — crea las carpetas si no existen
     artes = os.path.join(os.path.dirname(os.path.abspath(ruta_dwg)), "ARTES")
-    os.makedirs(artes, exist_ok=True)
-    dest = artes
-    try:
-        for e in os.listdir(artes):
-            if os.path.isdir(os.path.join(artes, e)) and e.upper() == "BN":
-                dest = os.path.join(artes, e); break
-    except Exception: pass
+    dest  = os.path.join(artes, "BN")
+    os.makedirs(dest, exist_ok=True)
+
     if nombre_archivo:
         nombre = nombre_archivo if nombre_archivo.lower().endswith(".dwg") else nombre_archivo + ".dwg"
     else:
-        partes = [p.strip() for p in [malla, pieza] if p.strip()]
-        nombre = ("P " + " ".join(partes) if partes else
-                  "P " + os.path.splitext(os.path.basename(ruta_dwg))[0]) + ".dwg"
-    while "  " in nombre: nombre = nombre.replace("  ", " ")
+        # Formato: P {malla(s)} – {pieza}
+        # Mallas múltiples separadas por "/" en el campo → listarlas con espacio
+        mallas_str = " ".join(
+            m.strip() for m in malla.replace(",", "/").split("/") if m.strip()
+        ) if malla.strip() else ""
+        if mallas_str and pieza.strip():
+            nombre = f"P {mallas_str} – {pieza.strip()}.dwg"
+        elif mallas_str:
+            nombre = f"P {mallas_str}.dwg"
+        elif pieza.strip():
+            nombre = f"P {pieza.strip()}.dwg"
+        else:
+            nombre = "P " + os.path.splitext(os.path.basename(ruta_dwg))[0] + ".dwg"
+
+    while "  " in nombre:
+        nombre = nombre.replace("  ", " ")
     return os.path.join(dest, nombre)
 
 def _extraer_codigos(ruta):
@@ -359,6 +368,29 @@ class StatCard(ctk.CTkFrame):
 
     def set(self, v): self._val.configure(text=f"{v:,}" if isinstance(v, int) else str(v))
 
+
+def _anular_bd(valores, log_fn):
+    """Anula vitro y malla en BD cuando el arte falla — evita números bloqueados."""
+    if not _ASIGN_OK:
+        return
+    vitro = valores.get("VITRO", "").strip()
+    malla = valores.get("MALLA", "").strip()
+    anulados = []
+    try:
+        if vitro:
+            _anular_asignacion("vitrojet", vitro)
+            anulados.append(vitro)
+        for m in malla.split("/"):
+            m = m.strip()
+            if not m:
+                continue
+            tab = "grandes" if m.upper().startswith("A-") else "pequenas"
+            _anular_asignacion(tab, m)
+            anulados.append(m)
+        if anulados:
+            log_fn(f"⚠ Asignación anulada en BD: {', '.join(anulados)}", "warn")
+    except Exception as e:
+        log_fn(f"WARN: no se pudo anular en BD: {e}", "warn")
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PESTAÑA — CREAR ARTE
@@ -591,7 +623,7 @@ class TabArte(ctk.CTkFrame):
         threading.Thread(target=self._t_crear, args=(dwg, valores, arte0), daemon=True).start()
 
     def _t_crear(self, dwg, valores, arte0):
-        self._log_fn("="*50)
+        self._log_fn("=" * 50)
         self._log_fn("CREAR ARTE...", "ok")
         try:
             _crear_arte_autocad(dwg, log_fn=lambda m: self._log_fn(m,"dim"),
@@ -612,7 +644,9 @@ class TabArte(ctk.CTkFrame):
             if self._on_art_done:
                 self.after(0, self._on_art_done)
         except Exception as e:
-            self._log_fn(str(e), "err")
+            self._log_fn(f"ERROR: {e}", "err")
+            self._log_fn(traceback.format_exc(), "err")
+            _anular_bd(valores, self._log_fn)
         finally:
             self._busy(False)
 
@@ -715,6 +749,7 @@ class TabArte(ctk.CTkFrame):
         except Exception as e:
             self._log_fn(f"ERROR: {e}", "err")
             self._log_fn(traceback.format_exc(), "err")
+            _anular_bd(valores, self._log_fn)
         finally:
             pythoncom.CoUninitialize()
 
@@ -1411,7 +1446,7 @@ class TabGestion(ctk.CTkFrame):
         btn_cancel.pack(side="left", ipadx=6, ipady=6, padx=(0,20))
 
         def _anular():
-            from tkinter import messagebox as _mb
+            import ctypes as _ct
             pk_label = pk_col.upper()
             confirmar_txt = (
                 f"¿Seguro que quieres ANULAR este registro?\n\n"
@@ -1420,7 +1455,10 @@ class TabGestion(ctk.CTkFrame):
                 f"y pondrá el número como CANCELADO para que otro lo pueda tomar.\n\n"
                 f"Si tiene vitro+malla vinculados, ambos quedarán cancelados."
             )
-            if not _mb.askyesno("Confirmar anulación", confirmar_txt, icon="warning"):
+            # MB_YESNO | MB_ICONWARNING | MB_TOPMOST — siempre al frente
+            resp = _ct.windll.user32.MessageBoxW(
+                0, confirmar_txt, "Confirmar anulación", 0x04 | 0x30 | 0x40000)
+            if resp != 6:  # 6 = IDYES
                 return
             try:
                 res = _anular_asignacion(tab, pk_val)
@@ -1719,34 +1757,41 @@ class TabGestion(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════════════════════════
 #  PESTAÑA — SCANNER DE ÓRDENES
 # ══════════════════════════════════════════════════════════════════════════════
-_CS_COMERCIAL = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=192.168.2.23;DATABASE=Comercial;"
-    "UID=Consulta;PWD=@GPgl4$$2021;"
-    "TrustServerCertificate=yes;Connection Timeout=10;"
-)
-_CS_SAP = (
-    "DRIVER={ODBC Driver 17 for SQL Server};"
-    "SERVER=agpcolsap.database.windows.net,1433;DATABASE=DB_COL_SAP;"
-    "UID=Viewer;PWD=AgpconsCol2023;"
-    "Encrypt=yes;TrustServerCertificate=no;Connection Timeout=15;"
-)
-
 def _conectar_comercial():
-    for drv in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
-        try:
-            return pyodbc.connect(_CS_COMERCIAL.replace("ODBC Driver 17 for SQL Server", drv))
-        except Exception:
-            continue
-    raise RuntimeError("No se pudo conectar a Comercial (192.168.2.23)")
+    if _pymssql is None:
+        raise RuntimeError("pymssql no disponible")
+    try:
+        conn = _pymssql.connect(
+            server="192.168.2.23",
+            user="Consulta",
+            password="@GPgl4$$2021",
+            database="Comercial",
+            timeout=10,
+            login_timeout=10,
+            tds_version="7.3",
+        )
+        return _ConnWrap(conn)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar a Comercial (192.168.2.23)\n{e}")
 
 def _conectar_sap():
-    for drv in ["ODBC Driver 18 for SQL Server", "ODBC Driver 17 for SQL Server"]:
-        try:
-            return pyodbc.connect(_CS_SAP.replace("ODBC Driver 17 for SQL Server", drv))
-        except Exception:
-            continue
-    raise RuntimeError("No se pudo conectar a SAP Azure")
+    if _pymssql is None:
+        raise RuntimeError("pymssql no disponible")
+    try:
+        conn = _pymssql.connect(
+            server="agpcolsap.database.windows.net",
+            port=1433,
+            user="Viewer",
+            password="AgpconsCol2023",
+            database="DB_COL_SAP",
+            timeout=15,
+            login_timeout=15,
+            charset="UTF-8",
+            tds_version="7.3",
+        )
+        return _ConnWrap(conn)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar a SAP Azure\n{e}")
 
 
 class TabScanner(ctk.CTkFrame):
