@@ -682,7 +682,7 @@ def listar_dwgs(ruta_base, solo_marca=None):
 
             # 1. P*.dwg directamente en ARTES/
             for archivo in sorted(filenames):
-                if archivo.lower().endswith(".dwg") and archivo.upper().startswith("P"):
+                if archivo.lower().endswith((".dwg", ".dxf")) and archivo.upper().startswith("P"):
                     if not _excluir(archivo):
                         yield marca, vehiculo, version, dirpath, os.path.join(dirpath, archivo)
 
@@ -693,7 +693,7 @@ def listar_dwgs(ruta_base, solo_marca=None):
                     if not os.path.isdir(carpeta_bn):
                         continue
                     for archivo in sorted(os.listdir(carpeta_bn)):
-                        if archivo.lower().endswith(".dwg") and archivo.upper().startswith("P"):
+                        if archivo.lower().endswith((".dwg", ".dxf")) and archivo.upper().startswith("P"):
                             if not _excluir(archivo):
                                 yield marca, vehiculo, version, carpeta_bn, os.path.join(carpeta_bn, archivo)
 
@@ -1040,7 +1040,31 @@ def main():
             n_desde_cp += 1
             log_info(f"  [{n_archivo}] {os.path.basename(ruta_dwg)}")
 
-            # Ejecutar en thread con timeout para no congelarse
+            # .dxf → ezdxf directo, sin AutoCAD
+            if ruta_dwg.lower().endswith(".dxf") and _EZDXF_OK:
+                log_info(f"  [ezdxf directo]")
+                resultado = analizar_ezdxf(ruta_dwg)
+                resultado["marca"]    = marca
+                resultado["vehiculo"] = vehiculo
+                resultado["version"]  = version
+                buffer_carpeta.append(resultado)
+                filas_por_marca.setdefault(marca, []).append(resultado)
+                est  = resultado["estado"]
+                r    = resultado
+                para = r["es_parabrisas"]
+                def _c(ok): return "✔" if ok else "✘"
+                layers_str = (f"K={_c(r['k_ok'])}  K2={_c(r['k2_ok'])}  K3={_c(r['k3_ok'])}  Logo={_c(r['logo1_ok'])}")
+                bd_str = f"  vitro={r['vitro']}  malla={r['malla']}  BD={'✔' if r['bd_actualizado'] else '—'}" if r['vitro'] != "—" or r['malla'] != "—" else "  vitro=—  malla=—"
+                prefijo = "  [OK]" if est == "OK" else ("  [SIN DATOS]" if est == "SIN DATOS" else ("  [!!]" if est == "INCOMPLETO" else "  [XX]"))
+                log_info(f"{prefijo}  {layers_str}{bd_str}" + (f"\n      ⚠  {r['notas']}" if r["notas"] else ""))
+                if n_desde_cp >= CHECKPOINT_CADA:
+                    cp.setdefault(clave_carpeta, []).extend(buffer_carpeta)
+                    buffer_carpeta = []
+                    cp_guardar(cp)
+                    n_desde_cp = 0
+                continue
+
+            # .dwg → AutoCAD COM con thread + timeout
             _res = [None]
             def _run():
                 _ERRORES_RETRIABLES = {
@@ -1083,11 +1107,12 @@ def main():
             t.start()
             t.join(timeout=TIMEOUT_ARCHIVO)
             if t.is_alive():
-                log_warn(f"  TIMEOUT ({TIMEOUT_ARCHIVO}s) — intentando ezdxf...")
-                _res[0] = None  # forzar fallback
+                log_warn(f"  TIMEOUT ({TIMEOUT_ARCHIVO}s) — saltando {os.path.basename(ruta_dwg)}")
+                _res[0] = None
 
-            # Si AutoCAD falló o timeout → intentar con ezdxf
-            if (_res[0] is None or _res[0].get("estado") == "ERROR") and _EZDXF_OK:
+            # Si AutoCAD falló o timeout → intentar ezdxf SOLO si es .dxf
+            es_dxf = ruta_dwg.lower().endswith(".dxf")
+            if (_res[0] is None or _res[0].get("estado") == "ERROR") and _EZDXF_OK and es_dxf:
                 try:
                     log_info(f"  [ezdxf fallback] {os.path.basename(ruta_dwg)}")
                     _res[0] = analizar_ezdxf(ruta_dwg)
