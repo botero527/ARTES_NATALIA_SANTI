@@ -72,6 +72,13 @@ try:
 except ImportError:
     print("Falta pymssql.  pip install pymssql"); sys.exit(1)
 
+try:
+    import ezdxf as _ezdxf
+    _EZDXF_OK = True
+except ImportError:
+    _ezdxf = None
+    _EZDXF_OK = False
+
 
 # ═══════════════════════════════════════════════════════════════
 #  LOGGER
@@ -224,6 +231,150 @@ def es_parabrisas(nombre_archivo):
 
 
 # ═══════════════════════════════════════════════════════════════
+#  ANÁLISIS CON EZDXF (fallback sin AutoCAD)
+# ═══════════════════════════════════════════════════════════════
+_RE_MTEXT_EZ = re.compile(r'\{[^}]*\}|\\[A-Za-z][^;]*;|%%.')
+
+def _limpiar_ez(s):
+    s = _RE_MTEXT_EZ.sub(" ", s or "")
+    return re.sub(r'\s+', ' ', s).strip()
+
+def analizar_ezdxf(ruta_dwg):
+    """Lee el DWG con ezdxf, sin necesidad de AutoCAD abierto."""
+    para = es_parabrisas(os.path.basename(ruta_dwg))
+    resultado = {
+        "ruta": ruta_dwg, "archivo": os.path.basename(ruta_dwg),
+        "es_parabrisas": para,
+        "k_ok": False, "k_color": None, "k2_ok": False, "k2_color": None,
+        "k3_ok": False, "k3_color": None, "logo1_ok": False, "logo2_ok": False,
+        "puntos_ok": False, "puntos_estado": "—",
+        "vitro": "—", "malla": "—", "bd_actualizado": False, "duplicados": [],
+        "estado": "OK", "notas": [], "error": None, "metodo": "ezdxf",
+    }
+    try:
+        doc = _ezdxf.readfile(ruta_dwg)
+        msp = doc.modelspace()
+
+        # Layers y colores
+        layers = {}
+        for lyr in doc.layers:
+            aci = lyr.color
+            layers[lyr.dxf.name.upper().strip()] = abs(aci)
+
+        textos           = []
+        layers_con_ents  = set()
+        hatch_puntos     = False
+        trazo_puntos     = False
+        _bloques_vistos  = set()
+
+        def _texto_ez(e):
+            t = e.dxftype()
+            lyr = e.dxf.layer.upper().strip() if e.dxf.hasattr("layer") else ""
+            if lyr:
+                layers_con_ents.add(lyr)
+            if t in ("TEXT", "ATTRIB", "ATTDEF"):
+                try:
+                    s = _limpiar_ez(e.dxf.text)
+                    if s: textos.append(s)
+                except Exception: pass
+            elif t == "MTEXT":
+                try:
+                    s = _limpiar_ez(e.plain_mtext())
+                    if s: textos.append(s)
+                except Exception: pass
+            if "PUNTOS" in lyr:
+                nonlocal hatch_puntos, trazo_puntos
+                if t == "HATCH": hatch_puntos = True
+                elif t in ("LWPOLYLINE","POLYLINE","LINE","SPLINE"): trazo_puntos = True
+
+        def _leer_blk(nombre):
+            if nombre in _bloques_vistos: return
+            _bloques_vistos.add(nombre)
+            try:
+                for e in doc.blocks[nombre]:
+                    _texto_ez(e)
+                    if e.dxftype() == "INSERT":
+                        try:
+                            for a in e.attribs: _texto_ez(a)
+                        except Exception: pass
+                        try: _leer_blk(e.dxf.name)
+                        except Exception: pass
+            except Exception: pass
+
+        for e in msp:
+            _texto_ez(e)
+            if e.dxftype() == "INSERT":
+                try:
+                    for a in e.attribs: _texto_ez(a)
+                except Exception: pass
+                try: _leer_blk(e.dxf.name)
+                except Exception: pass
+
+        # Validar K/K2/K3
+        for key, color_esp, campo_ok, campo_color in [
+            ("K", COLOR_K, "k_ok", "k_color"),
+            ("K2", COLOR_K2, "k2_ok", "k2_color"),
+            ("K3", COLOR_K3, "k3_ok", "k3_color"),
+        ]:
+            color_real = layers.get(key)
+            resultado[campo_color] = color_real
+            if key in layers_con_ents and color_real == color_esp:
+                resultado[campo_ok] = True
+            elif key in layers_con_ents and color_real != color_esp:
+                resultado["notas"].append(f"Layer {key} color incorrecto ({color_real}≠{color_esp})")
+            elif key not in layers_con_ents:
+                resultado["notas"].append(f"Falta layer {key}")
+
+        # Logo
+        tiene_logo = "LOGO" in layers_con_ents or "LOGO1" in layers_con_ents
+        resultado["logo1_ok"] = tiene_logo
+        resultado["logo2_ok"] = "LOGO2" in layers_con_ents
+        if not tiene_logo:
+            resultado["notas"].append("Falta layer LOGO / LOGO1")
+
+        # Puntos (solo parabrisas)
+        if para:
+            tiene_puntos = any("PUNTOS" in l for l in layers_con_ents)
+            resultado["puntos_ok"] = tiene_puntos
+            if not tiene_puntos:
+                resultado["puntos_estado"] = "FALTA"
+                resultado["notas"].append("Parabrisas sin layer PUNTOS")
+            elif hatch_puntos and not trazo_puntos:
+                resultado["puntos_estado"] = "OK relleno"
+            elif trazo_puntos and not hatch_puntos:
+                resultado["puntos_estado"] = "DESACTUALIZADO (trazo suelto)"
+                resultado["notas"].append("PUNTOS: trazo suelto sin relleno")
+            else:
+                resultado["puntos_estado"] = "MIXTO"
+
+        # BD
+        vitro, malla, bd_ok, notas_bd, dups = bd_validar_y_actualizar(textos, ruta_dwg)
+        resultado["vitro"] = vitro
+        resultado["malla"] = malla
+        resultado["bd_actualizado"] = bd_ok
+        resultado["duplicados"] = dups
+        if notas_bd: resultado["notas"].append(notas_bd)
+        if dups: resultado["notas"].append(f"DUPLICADO ruta: {', '.join(d['codigo'] for d in dups)}")
+
+        # Si no tiene NINGÚN layer conocido → SIN DATOS (archivo viejo/diferente)
+        tiene_algo = any(l in layers_con_ents for l in ("K","K2","K3","LOGO","LOGO1","LOGO2"))
+        if not tiene_algo and vitro == "—" and malla == "—":
+            resultado["estado"] = "SIN DATOS"
+            resultado["notas"] = ["Archivo sin layers/texto estándar"]
+        else:
+            errores = [n for n in resultado["notas"] if any(p in n for p in ("Falta","incorrecto","DESACTUALIZADO"))]
+            resultado["estado"] = "INCOMPLETO" if errores else "OK"
+
+    except Exception as e:
+        resultado["estado"] = "ERROR"
+        resultado["error"]  = str(e)
+        resultado["notas"]  = [f"ezdxf error: {e}"]
+
+    resultado["notas"] = " | ".join(resultado["notas"]) if resultado["notas"] else ""
+    return resultado
+
+
+# ═══════════════════════════════════════════════════════════════
 #  ANÁLISIS DE UN DWG
 # ═══════════════════════════════════════════════════════════════
 def analizar_dwg(acad, ruta_dwg):
@@ -276,9 +427,17 @@ def analizar_dwg(acad, ruta_dwg):
             except Exception:
                 pass
             time.sleep(0.1)
-        time.sleep(0.3)  # pequeña pausa adicional para que modelspace esté disponible
-
-        msp = _com_call(lambda: doc.ModelSpace)
+        # Esperar a que ModelSpace esté disponible (puede tardar en DWGs pesados)
+        msp = None
+        for _ in range(20):
+            try:
+                msp = _com_call(lambda: doc.ModelSpace)
+                _ = msp.Count  # forzar acceso real para confirmar que está listo
+                break
+            except Exception:
+                time.sleep(0.3)
+        if msp is None:
+            raise RuntimeError("ModelSpace no disponible tras espera")
 
         # ── Recolectar layers ──────────────────────────────────────────
         layers = {}   # name_upper → color ACI
@@ -289,11 +448,70 @@ def analizar_dwg(acad, ruta_dwg):
             except Exception:
                 pass
 
+        # ── Helpers de extracción de texto ────────────────────────────
+        _RE_MTEXT = re.compile(r'\{[^}]*\}|\\[A-Za-z][^;]*;|%%.')
+
+        def _limpiar_mtext(s):
+            """Quita códigos de formato de MTEXT ({\\fArial|...}, \\P, %%c, etc.)"""
+            s = _RE_MTEXT.sub(" ", s)
+            return re.sub(r'\s+', ' ', s).strip()
+
+        _bloques_visitados = set()
+
+        def _texto_de_entidad(ent):
+            """Extrae todo el texto de una entidad, cualquier tipo."""
+            n = ent.ObjectName
+            # TEXT / MTEXT / ATTDEF / ATTRIB
+            if "Text" in n or "Attrib" in n or "Attdef" in n:
+                try:
+                    t = _limpiar_mtext(ent.TextString)
+                    if t: textos.append(t)
+                except Exception: pass
+            # Tabla (AcDbTable) — leer cada celda
+            if n == "AcDbTable":
+                try:
+                    for row in range(ent.Rows):
+                        for col in range(ent.Columns):
+                            try:
+                                t = _limpiar_mtext(ent.GetText(row, col))
+                                if t: textos.append(t)
+                            except Exception: pass
+                except Exception: pass
+            # MLeader
+            if n == "AcDbMLeader":
+                try:
+                    t = _limpiar_mtext(ent.TextString)
+                    if t: textos.append(t)
+                except Exception: pass
+
+        def _leer_bloque_def(nombre_blk):
+            """Lee recursivamente todas las entidades de una definición de bloque."""
+            if nombre_blk in _bloques_visitados:
+                return
+            _bloques_visitados.add(nombre_blk)
+            try:
+                blk_def = doc.Blocks.Item(nombre_blk)
+                for be in blk_def:
+                    try:
+                        _texto_de_entidad(be)
+                        if be.ObjectName == "AcDbBlockReference":
+                            # Atributos del sub-bloque
+                            try:
+                                for attr in be.GetAttributes():
+                                    _texto_de_entidad(attr)
+                            except Exception: pass
+                            # Definición del sub-bloque (recursivo)
+                            try:
+                                _leer_bloque_def(be.Name)
+                            except Exception: pass
+                    except Exception: pass
+            except Exception: pass
+
         # ── Layers con entidades reales ────────────────────────────────
         layers_con_ents = set()
         textos          = []
         hatch_en_puntos = False
-        trazo_en_puntos = False   # polilínea/línea suelta (no en bloque)
+        trazo_en_puntos = False
 
         for e in msp:
             try:
@@ -301,22 +519,18 @@ def analizar_dwg(acad, ruta_dwg):
                 lyr_e = e.Layer.upper().strip()
                 layers_con_ents.add(lyr_e)
 
-                # Textos
-                if "Text" in nombre_obj:
-                    t = e.TextString.strip()
-                    if t:
-                        textos.append(t)
+                # Texto directo
+                _texto_de_entidad(e)
 
-                # Bloque → leer atributos
+                # Bloque → atributos + definición completa (recursivo)
                 if nombre_obj == "AcDbBlockReference":
                     try:
-                        for ai in range(e.Count):
-                            attr = e.Item(ai)
-                            t = attr.TextString.strip()
-                            if t:
-                                textos.append(t)
-                    except Exception:
-                        pass
+                        for attr in e.GetAttributes():
+                            _texto_de_entidad(attr)
+                    except Exception: pass
+                    try:
+                        _leer_bloque_def(e.Name)
+                    except Exception: pass
 
                 # PUNTOS: hatch vs trazo suelto
                 if "PUNTOS" in lyr_e:
@@ -678,6 +892,72 @@ def generar_excel(filas_por_marca, ruta_excel):
                 cel.border = _borde()
                 cel.alignment = _left()
 
+    # Hoja ACTUALIZADAS — solo las que se insertaron/actualizaron en BD
+    todas_filas = [f for filas in filas_por_marca.values() for f in filas]
+    actualizadas = [f for f in todas_filas if f.get("bd_actualizado")]
+
+    if actualizadas:
+        ws_act = wb.create_sheet(title="ACTUALIZADAS")
+        ws_act.freeze_panes = "A2"
+        ws_act.row_dimensions[1].height = 28
+
+        COLS_ACT = [
+            ("Archivo",    28), ("Marca",    14), ("Vehículo",  36),
+            ("Versión",    10), ("Vitro",    16), ("Malla G",   16),
+            ("Malla P",    18), ("Estado",   14), ("K",          8),
+            ("K2",          8), ("K3",        8), ("Logo",       8),
+            ("Parabrisas", 12), ("Puntos",   22), ("Ruta",      80),
+        ]
+        for ci, (titulo, ancho) in enumerate(COLS_ACT, 1):
+            cel = ws_act.cell(row=1, column=ci, value=titulo)
+            cel.font = _font(bold=True, color="FFFFFF", size=10)
+            cel.fill = _fill("375623")   # verde oscuro
+            cel.alignment = _center()
+            cel.border = _borde()
+            ws_act.column_dimensions[get_column_letter(ci)].width = ancho
+
+        for ri, f in enumerate(actualizadas, 2):
+            texto_unido = " ".join([f.get("vitro",""), f.get("malla","")])
+            grandes = re.findall(r'A-\d{4,6}', texto_unido, re.I)
+            pequenas_raw = re.findall(r'\b\d{4,6}\b', texto_unido)
+            excluir = {re.sub(r'[TA]-','',v,flags=re.I) for v in re.findall(r'[TA]-\d{4,6}', texto_unido, re.I)}
+            pequenas = [n for n in pequenas_raw if n not in excluir]
+
+            para = f.get("es_parabrisas", False)
+            estado = f.get("estado","")
+            fila_color = "E2EFDA" if ri % 2 == 0 else "F0FAF0"
+
+            vals = [
+                f.get("archivo",""),
+                f.get("marca",""),
+                f.get("vehiculo",""),
+                f.get("version",""),
+                f.get("vitro","—"),
+                " / ".join(grandes) or "—",
+                " / ".join(pequenas) or "—",
+                estado,
+                "✔" if f.get("k_ok")  else "✘",
+                "✔" if f.get("k2_ok") else "✘",
+                "✔" if f.get("k3_ok") else "✘",
+                "✔" if f.get("logo1_ok") else "✘",
+                "✔" if para else "",
+                f.get("puntos_estado","—"),
+                f.get("ruta",""),
+            ]
+            for ci, val in enumerate(vals, 1):
+                cel = ws_act.cell(row=ri, column=ci, value=val)
+                cel.fill = _fill(fila_color)
+                cel.border = _borde()
+                cel.alignment = _left()
+                if ci in (9,10,11,12,13):
+                    cel.alignment = _center()
+                    if str(val) == "✘":
+                        cel.font = _font(bold=True, color="C00000")
+                    elif str(val) == "✔":
+                        cel.font = _font(bold=True, color="375623")
+
+        log_ok(f"Hoja ACTUALIZADAS: {len(actualizadas)} artes con BD update")
+
     wb.save(ruta_excel)
     log_ok(f"Excel guardado: {ruta_excel}")
 
@@ -712,33 +992,13 @@ def main():
     # Verificar que AutoCAD esté abierto (cada thread crea su propia conexión COM)
     pythoncom.CoInitialize()
     try:
-        _acad_main = win32com.client.GetActiveObject("AutoCAD.Application")
+        win32com.client.GetActiveObject("AutoCAD.Application")
         log_ok("AutoCAD detectado.")
     except Exception:
         log_err("AutoCAD no está abierto. Ábrelo primero.")
         pythoncom.CoUninitialize()
         sys.exit(1)
 
-    # Docs abiertos al inicio — no cerrar estos
-    try:
-        _docs_iniciales = {_acad_main.Documents.Item(i).FullName.upper()
-                           for i in range(_acad_main.Documents.Count)}
-    except Exception:
-        _docs_iniciales = set()
-
-    def _cerrar_extras():
-        """Cierra cualquier doc que no estuviera abierto al inicio."""
-        try:
-            acad = win32com.client.GetActiveObject("AutoCAD.Application")
-            for i in range(acad.Documents.Count - 1, -1, -1):
-                try:
-                    doc = acad.Documents.Item(i)
-                    if doc.FullName.upper() not in _docs_iniciales:
-                        doc.Close(False)
-                except Exception:
-                    pass
-        except Exception:
-            pass
 
     print(f"\n{'='*60}")
     print(f"  AUDITORÍA ARTES AGP — {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -783,10 +1043,30 @@ def main():
             # Ejecutar en thread con timeout para no congelarse
             _res = [None]
             def _run():
+                _ERRORES_RETRIABLES = {
+                    -2147418111,  # RPC_E_CALL_REJECTED — AutoCAD ocupado
+                    -2147221021,  # CO_E_NOTINITIALIZED — COM no listo
+                    -2147418113,  # RPC_E_DISCONNECTED
+                    -2147023174,  # RPC_S_SERVER_UNAVAILABLE
+                }
                 try:
                     pythoncom.CoInitialize()
-                    _acad = win32com.client.GetActiveObject("AutoCAD.Application")
-                    _res[0] = analizar_dwg(_acad, ruta_dwg)
+                    ultimo_error = None
+                    for intento in range(6):
+                        try:
+                            _acad = win32com.client.GetActiveObject("AutoCAD.Application")
+                            # Verificar que Documents esté accesible
+                            _ = _acad.Documents.Count
+                            _res[0] = analizar_dwg(_acad, ruta_dwg)
+                            return
+                        except Exception as e:
+                            ultimo_error = e
+                            codigo = getattr(e, 'hresult', None) or (e.args[0] if e.args else None)
+                            if codigo in _ERRORES_RETRIABLES or "AutoCAD.Application" in str(e):
+                                time.sleep(1.5 * (intento + 1))
+                            else:
+                                raise
+                    raise ultimo_error
                 except Exception as e:
                     _res[0] = {"ruta": ruta_dwg, "archivo": os.path.basename(ruta_dwg),
                                "es_parabrisas": es_parabrisas(os.path.basename(ruta_dwg)),
@@ -803,17 +1083,19 @@ def main():
             t.start()
             t.join(timeout=TIMEOUT_ARCHIVO)
             if t.is_alive():
-                log_warn(f"  TIMEOUT ({TIMEOUT_ARCHIVO}s) — saltando {os.path.basename(ruta_dwg)}")
-                _res[0] = {"ruta": ruta_dwg, "archivo": os.path.basename(ruta_dwg),
-                           "es_parabrisas": es_parabrisas(os.path.basename(ruta_dwg)),
-                           "k_ok": False, "k_color": None, "k2_ok": False, "k2_color": None,
-                           "k3_ok": False, "k3_color": None, "logo1_ok": False, "logo2_ok": False,
-                           "puntos_ok": False, "puntos_estado": "—",
-                           "vitro": "—", "malla": "—", "bd_actualizado": False, "duplicados": [],
-                           "estado": "ERROR", "notas": f"TIMEOUT >{TIMEOUT_ARCHIVO}s", "error": "timeout"}
+                log_warn(f"  TIMEOUT ({TIMEOUT_ARCHIVO}s) — intentando ezdxf...")
+                _res[0] = None  # forzar fallback
+
+            # Si AutoCAD falló o timeout → intentar con ezdxf
+            if (_res[0] is None or _res[0].get("estado") == "ERROR") and _EZDXF_OK:
+                try:
+                    log_info(f"  [ezdxf fallback] {os.path.basename(ruta_dwg)}")
+                    _res[0] = analizar_ezdxf(ruta_dwg)
+                except Exception as ez_e:
+                    log_warn(f"  ezdxf también falló: {ez_e}")
 
             resultado = _res[0] or {"ruta": ruta_dwg, "archivo": os.path.basename(ruta_dwg),
-                                    "estado": "ERROR", "notas": "Sin resultado", "error": "none",
+                                    "estado": "ERROR", "notas": "Sin resultado (COM+ezdxf)", "error": "none",
                                     "es_parabrisas": False, "k_ok": False, "k_color": None,
                                     "k2_ok": False, "k2_color": None, "k3_ok": False, "k3_color": None,
                                     "logo1_ok": False, "logo2_ok": False, "puntos_ok": False,
@@ -823,9 +1105,7 @@ def main():
             resultado["vehiculo"] = vehiculo
             resultado["version"]  = version
 
-            # Cerrar docs acumulados y pausar para que AutoCAD libere memoria
-            _cerrar_extras()
-            time.sleep(0.5)
+            time.sleep(0.3)
 
             buffer_carpeta.append(resultado)
             filas_por_marca.setdefault(marca, []).append(resultado)
