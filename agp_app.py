@@ -2062,18 +2062,208 @@ class TabScanner(ctk.CTkFrame):
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+#  PESTAÑA — ROLES Y PERMISOS  (solo admin)
+# ══════════════════════════════════════════════════════════════════════════════
+class TabRoles(ctk.CTkFrame):
+    ROLES = ["admin", "dibujante", "planta", "— sin rol —"]
+    COLS  = ("Nombre", "Usuario", "Rol", "Estatus")
+    ANCHOS = (220, 240, 110, 80)
+
+    def __init__(self, parent, **kw):
+        super().__init__(parent, fg_color="transparent", **kw)
+        self._rows = []
+        self._sel_id = None
+        self._build()
+
+    def _build(self):
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(1, weight=1)
+
+        # ── barra superior ──────────────────────────────────────────────────
+        top = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=10)
+        top.grid(row=0, column=0, sticky="ew", padx=20, pady=(16,8))
+        ctk.CTkLabel(top, text="Gestión de Roles", font=FONT(15,"bold"),
+                     text_color=PAL["txt"]).pack(side="left", padx=16, pady=10)
+        ctk.CTkButton(top, text="↺  Recargar", width=110, height=32,
+                      fg_color=PAL["card2"], hover_color=PAL["border"],
+                      font=FONT(11), command=self.refresh
+                      ).pack(side="right", padx=12, pady=10)
+
+        # ── cuerpo ──────────────────────────────────────────────────────────
+        body = ctk.CTkFrame(self, fg_color="transparent")
+        body.grid(row=1, column=0, sticky="nsew", padx=20, pady=(0,16))
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=0)
+        body.rowconfigure(0, weight=1)
+
+        # Treeview
+        tv_frame = ctk.CTkFrame(body, fg_color=PAL["card"], corner_radius=10)
+        tv_frame.grid(row=0, column=0, sticky="nsew", padx=(0,10))
+        tv_frame.rowconfigure(0, weight=1)
+        tv_frame.columnconfigure(0, weight=1)
+
+        style = __import__("tkinter.ttk", fromlist=["Style"]).Style()
+        style.configure("Roles.Treeview",
+                        background=PAL["card"], foreground=PAL["txt"],
+                        fieldbackground=PAL["card"], rowheight=34,
+                        borderwidth=0, font=("Segoe UI", 10))
+        style.configure("Roles.Treeview.Heading",
+                        background=PAL["card2"], foreground=PAL["txt_mid"],
+                        font=("Segoe UI", 10, "bold"), relief="flat")
+        style.map("Roles.Treeview", background=[("selected", PAL["accent"])])
+
+        import tkinter.ttk as ttk
+        self._tree = ttk.Treeview(tv_frame, style="Roles.Treeview",
+                                  columns=self.COLS, show="headings",
+                                  selectmode="browse")
+        for col, w in zip(self.COLS, self.ANCHOS):
+            self._tree.heading(col, text=col)
+            self._tree.column(col, width=w, minwidth=60,
+                              anchor="center" if col in ("Rol","Estatus") else "w")
+        sb = ctk.CTkScrollbar(tv_frame, command=self._tree.yview)
+        self._tree.configure(yscrollcommand=sb.set)
+        self._tree.grid(row=0, column=0, sticky="nsew")
+        sb.grid(row=0, column=1, sticky="ns")
+        self._tree.bind("<<TreeviewSelect>>", self._on_select)
+
+        # Panel editor lateral
+        panel = ctk.CTkFrame(body, fg_color=PAL["card"], corner_radius=10, width=240)
+        panel.grid(row=0, column=1, sticky="nsew")
+        panel.grid_propagate(False)
+        panel.columnconfigure(0, weight=1)
+
+        ctk.CTkLabel(panel, text="Editar usuario", font=FONT(13,"bold"),
+                     text_color=PAL["txt"]).pack(pady=(20,4), padx=16, anchor="w")
+        ctk.CTkFrame(panel, fg_color=PAL["border"], height=1).pack(fill="x", padx=12)
+
+        ctk.CTkLabel(panel, text="Nombre", font=FONT(10),
+                     text_color=PAL["txt_mid"]).pack(padx=16, pady=(14,2), anchor="w")
+        self._lbl_nombre = ctk.CTkLabel(panel, text="—", font=FONT(11,"bold"),
+                                        text_color=PAL["txt"], wraplength=200,
+                                        justify="left")
+        self._lbl_nombre.pack(padx=16, anchor="w")
+
+        ctk.CTkLabel(panel, text="Usuario", font=FONT(10),
+                     text_color=PAL["txt_mid"]).pack(padx=16, pady=(10,2), anchor="w")
+        self._lbl_usuario = ctk.CTkLabel(panel, text="—", font=FONT(10),
+                                          text_color=PAL["txt_mid"])
+        self._lbl_usuario.pack(padx=16, anchor="w")
+
+        ctk.CTkLabel(panel, text="Rol", font=FONT(10),
+                     text_color=PAL["txt_mid"]).pack(padx=16, pady=(16,4), anchor="w")
+        self._combo_rol = ctk.CTkComboBox(panel, values=self.ROLES,
+                                           width=200, height=36,
+                                           fg_color=PAL["card2"],
+                                           border_color=PAL["border"],
+                                           button_color=PAL["accent"],
+                                           font=FONT(12))
+        self._combo_rol.pack(padx=16)
+        self._combo_rol.set("— sin rol —")
+
+        ctk.CTkLabel(panel, text="Estatus", font=FONT(10),
+                     text_color=PAL["txt_mid"]).pack(padx=16, pady=(14,4), anchor="w")
+        self._switch_est = ctk.CTkSwitch(panel, text="Activo",
+                                          font=FONT(11),
+                                          fg_color=PAL["border"],
+                                          progress_color=PAL["ok"] if hasattr(PAL,"ok") else "#22C55E")
+        self._switch_est.pack(padx=16, anchor="w")
+        self._switch_est.select()
+
+        self._lbl_msg = ctk.CTkLabel(panel, text="", font=FONT(11),
+                                      text_color=PAL["accent"], wraplength=200)
+        self._lbl_msg.pack(padx=16, pady=(10,0))
+
+        ctk.CTkButton(panel, text="💾  Guardar cambios", height=40,
+                      corner_radius=10,
+                      fg_color=PAL["accent"], hover_color=PAL["accent2"] if "accent2" in PAL else "#2563EB",
+                      font=FONT(12,"bold"),
+                      command=self._guardar
+                      ).pack(padx=16, pady=(16,8), fill="x")
+
+        self.after(200, self.refresh)
+
+    # ── datos ────────────────────────────────────────────────────────────────
+    def refresh(self):
+        self._tree.delete(*self._tree.get_children())
+        self._rows.clear()
+        try:
+            cn = db_connect(); cur = cn.cursor()
+            cur.execute(
+                "SELECT id, nombre, usuario, rol, estatus "
+                "FROM MALLAS.APP_USUARIOS ORDER BY nombre"
+            )
+            for row in cur.fetchall():
+                rid, nombre, usuario, rol, estatus = row
+                rol_disp = rol or "— sin rol —"
+                est_disp = "Activo" if estatus else "Inactivo"
+                iid = self._tree.insert("", "end",
+                                        values=(nombre, usuario, rol_disp, est_disp))
+                self._rows.append({"iid": iid, "id": rid, "nombre": nombre,
+                                   "usuario": usuario, "rol": rol, "estatus": estatus})
+            cn.close()
+        except Exception as e:
+            self._lbl_msg.configure(text=f"Error BD: {e}", text_color="#EF4444")
+
+    def _on_select(self, _=None):
+        sel = self._tree.selection()
+        if not sel: return
+        iid = sel[0]
+        u = next((r for r in self._rows if r["iid"] == iid), None)
+        if not u: return
+        self._sel_id = u["id"]
+        self._lbl_nombre.configure(text=u["nombre"] or "—")
+        self._lbl_usuario.configure(text=u["usuario"] or "—")
+        self._combo_rol.set(u["rol"] or "— sin rol —")
+        if u["estatus"]: self._switch_est.select()
+        else: self._switch_est.deselect()
+        self._lbl_msg.configure(text="")
+
+    def _guardar(self):
+        if not self._sel_id:
+            self._lbl_msg.configure(text="Selecciona un usuario", text_color="#EF4444")
+            return
+        rol_val  = self._combo_rol.get()
+        rol_sql  = None if rol_val == "— sin rol —" else rol_val
+        estatus  = 1 if self._switch_est.get() else 0
+        try:
+            cn = db_connect(); cur = cn.cursor()
+            cur.execute(
+                "UPDATE MALLAS.APP_USUARIOS SET rol=%s, estatus=%s, "
+                "actualizado_en=SYSDATETIME() WHERE id=%s",
+                (rol_sql, estatus, self._sel_id)
+            )
+            cn.commit(); cn.close()
+            self._lbl_msg.configure(text="✔ Guardado", text_color="#22C55E")
+            self.refresh()
+        except Exception as e:
+            self._lbl_msg.configure(text=f"Error: {e}", text_color="#EF4444")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 #  APP PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════════════
+_PERMISOS = {
+    # nombre_pestaña → roles que pueden verla
+    "Crear Arte":       {"admin", "dibujante"},
+    "Consultar BD":     {"admin", "dibujante"},
+    "Gestión BD":       {"admin", "dibujante"},
+    "Scanner":          {"admin", "dibujante", "planta"},
+    "Roles y Permisos": {"admin"},
+}
+
 class AGPApp(ctk.CTk):
     PAGES = [
-        ("Crear Arte",    "🎨", TabArte),
-        ("Consultar BD",  "🔍", TabBD),
-        ("Gestión BD",    "✏", TabGestion),
-        ("Scanner",       "📷", TabScanner),
+        ("Crear Arte",       "🎨", TabArte),
+        ("Consultar BD",     "🔍", TabBD),
+        ("Gestión BD",       "✏", TabGestion),
+        ("Scanner",          "📷", TabScanner),
+        ("Roles y Permisos", "👥", TabRoles),
     ]
 
-    def __init__(self):
+    def __init__(self, usuario_info=None):
         super().__init__()
+        self._usuario = usuario_info or {}
+        self._rol     = (self._usuario.get("rol") or "").lower()
         self.title("AGP Glass — Suite")
         self.geometry("1280x820")
         self.minsize(1000, 680)
@@ -2164,13 +2354,28 @@ class AGPApp(ctk.CTk):
         ctk.CTkFrame(sidebar, fg_color=PAL["accent"], height=2
                      ).pack(fill="x", padx=12, pady=(4,10))
 
-        # Nav buttons
+        # Nav buttons — filtrados por rol del usuario actual
         self._nav_btns = {}
-        for name, icon, cls in self.PAGES:
+        self._pages_activas = [
+            (name, icon, cls) for name, icon, cls in self.PAGES
+            if self._rol in _PERMISOS.get(name, set())
+        ]
+        for name, icon, cls in self._pages_activas:
             b = SideBtn(sidebar, text=name, icon=icon,
                         command=lambda n=name: self._show(n))
             b.pack(fill="x", padx=8, pady=2)
             self._nav_btns[name] = b
+
+        # Info de usuario en sidebar
+        ctk.CTkFrame(sidebar, fg_color=PAL["border"], height=1
+                     ).pack(fill="x", padx=12, pady=(12,6))
+        nombre_corto = (self._usuario.get("nombre") or "").split()[0] if self._usuario.get("nombre") else ""
+        ctk.CTkLabel(sidebar, text=f"👤  {nombre_corto}",
+                     font=FONT(11,"bold"), text_color=PAL["txt"]
+                     ).pack(anchor="w", padx=16, pady=(0,2))
+        ctk.CTkLabel(sidebar, text=self._rol.capitalize() if self._rol else "Sin rol",
+                     font=FONT(10), text_color=PAL["accent"]
+                     ).pack(anchor="w", padx=16)
 
         # Section label below nav buttons
         ctk.CTkFrame(sidebar, fg_color=PAL["border"], height=1
@@ -2224,33 +2429,36 @@ class AGPApp(ctk.CTk):
         ctk.CTkFrame(self, fg_color=PAL["accent"], height=3
                      ).grid(row=0, column=0, columnspan=2, sticky="new")
 
-        # Instanciar páginas — apiladas con place(relwidth=1, relheight=1)
-        for name, icon, cls in self.PAGES:
+        # Instanciar solo las páginas activas para este rol
+        for name, icon, cls in self._pages_activas:
             f = cls(self._content)
             f.place(x=0, y=0, relwidth=1, relheight=1)
             f.place_forget()
             self._frames[name] = f
 
-        # Conectar callbacks para refresh entre pestañas
-        def _refresh_bd():
-            self._frames["Consultar BD"].refresh()
-            self._frames["Gestión BD"].refresh()
+        # Conectar callbacks entre pestañas (solo si existen)
+        if "Consultar BD" in self._frames and "Gestión BD" in self._frames:
+            def _refresh_bd():
+                self._frames["Consultar BD"].refresh()
+                self._frames["Gestión BD"].refresh()
+            self._frames["Crear Arte"]._on_art_done     = _refresh_bd if "Crear Arte" in self._frames else None
+            self._frames["Gestión BD"]._on_data_changed = self._frames["Consultar BD"].refresh
 
-        self._frames["Crear Arte"]._on_art_done    = _refresh_bd
-        self._frames["Gestión BD"]._on_data_changed = self._frames["Consultar BD"].refresh
+        # Atajos de teclado dinámicos
+        nombres = [n for n, _, _ in self._pages_activas]
+        for i, n in enumerate(nombres, 1):
+            self.bind(f"<Alt-Key-{i}>", lambda _, name=n: self._show(name))
 
-        self.bind("<Alt-Key-1>", lambda _: self._show("Crear Arte"))
-        self.bind("<Alt-Key-2>", lambda _: self._show("Consultar BD"))
-        self.bind("<Alt-Key-3>", lambda _: self._show("Gestión BD"))
-        self.bind("<Alt-Key-4>", lambda _: self._show("Scanner"))
-
-        self._show("Crear Arte")
+        primera = nombres[0] if nombres else None
+        if primera:
+            self._show(primera)
 
     _PAGE_SUBTITLES = {
-        "Crear Arte":   "Pipeline AutoCAD — extraer plano, crear y buscar artes",
-        "Consultar BD": "Base de datos Azure SQL — vitros, mallas, vinilos, pasta plata",
-        "Gestión BD":   "Editar, separar e insertar registros en la BD",
-        "Scanner":      "Escáner de órdenes de producción — barcode → SmartFactory → SAP",
+        "Crear Arte":       "Pipeline AutoCAD — extraer plano, crear y buscar artes",
+        "Consultar BD":     "Base de datos Azure SQL — vitros, mallas, vinilos, pasta plata",
+        "Gestión BD":       "Editar, separar e insertar registros en la BD",
+        "Scanner":          "Escáner de órdenes de producción — barcode → SmartFactory → SAP",
+        "Roles y Permisos": "Gestión de roles y accesos de usuarios",
     }
 
     def _on_content_resize(self, e):
@@ -2278,16 +2486,46 @@ class AGPApp(ctk.CTk):
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     # ── Login ──────────────────────────────────────────────────────────────
+    _USUARIO_ACTUAL = None
     try:
         from login_window import LoginWindow
         login = LoginWindow()
         login.mainloop()
         if login.usuario_info is None:
-            sys.exit(0)   # cerró sin loguearse
+            sys.exit(0)
         _USUARIO_ACTUAL = login.usuario_info
     except Exception as _le:
-        print(f"[login] error al mostrar login: {_le} — abriendo app directamente")
-        _USUARIO_ACTUAL = None
+        print(f"[login] error: {_le}")
+
+    # ── Sin rol asignado ────────────────────────────────────────────────────
+    if _USUARIO_ACTUAL and not _USUARIO_ACTUAL.get("rol"):
+        _pal = {"bg": "#0F1117", "card": "#1C2333", "accent": "#3B82F6",
+                "txt": "#F1F5F9", "txt_mid": "#94A3B8"}
+        _win = ctk.CTk()
+        _win.title("AGP Glass")
+        _win.geometry("460x300")
+        _win.resizable(False, False)
+        _win.configure(fg_color=_pal["bg"])
+        _win.update_idletasks()
+        _wx = (_win.winfo_screenwidth()  - 460) // 2
+        _wy = (_win.winfo_screenheight() - 300) // 2
+        _win.geometry(f"460x300+{_wx}+{_wy}")
+        _card = ctk.CTkFrame(_win, fg_color=_pal["card"], corner_radius=16)
+        _card.place(relx=0.5, rely=0.5, anchor="center", relwidth=0.88, relheight=0.82)
+        ctk.CTkLabel(_card, text="⚠", font=CTkFont(size=40)).pack(pady=(28,4))
+        ctk.CTkLabel(_card, text="Sin rol asignado",
+                     font=CTkFont(size=18, weight="bold"),
+                     text_color=_pal["txt"]).pack()
+        _nom = (_USUARIO_ACTUAL.get("nombre") or "").split()[0]
+        ctk.CTkLabel(_card,
+                     text=f"Hola {_nom}, aún no tienes ningún rol.\nHabla con un administrador para que te asigne acceso.",
+                     font=CTkFont(size=12), text_color=_pal["txt_mid"],
+                     justify="center", wraplength=340).pack(pady=(10,0))
+        ctk.CTkButton(_card, text="Cerrar", width=120, height=36,
+                      fg_color=_pal["accent"], corner_radius=10,
+                      command=_win.destroy).pack(pady=(18,0))
+        _win.mainloop()
+        sys.exit(0)
 
     # ── App principal ───────────────────────────────────────────────────────
-    AGPApp().mainloop()
+    AGPApp(usuario_info=_USUARIO_ACTUAL).mainloop()

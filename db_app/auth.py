@@ -100,7 +100,7 @@ def validar_login(usuario: str, contrasenia: str):
         cn = _conn()
         cur = cn.cursor()
         cur.execute(
-            "SELECT nombre, usuario, es_admin, estatus "
+            "SELECT nombre, usuario, es_admin, estatus, rol "
             "FROM MALLAS.APP_USUARIOS "
             "WHERE LOWER(usuario)=LOWER(%s) AND contrasenia=%s AND estatus=1",
             (usuario.strip(), contrasenia.strip())
@@ -113,6 +113,7 @@ def validar_login(usuario: str, contrasenia: str):
                 "usuario":  row[1],
                 "es_admin": bool(row[2]),
                 "estatus":  row[3],
+                "rol":      (row[4] or "").strip().lower() or None,
             }
         return None
     except Exception as e:
