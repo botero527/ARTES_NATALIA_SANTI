@@ -165,24 +165,25 @@ def bd_validar_y_actualizar(textos, ruta_dwg):
 # ═══════════════════════════════════════════════════════════════
 #  ODA — convertir DWGs a DXF
 # ═══════════════════════════════════════════════════════════════
-def oda_convertir_carpeta(carpeta_in, carpeta_out, timeout=120):
+def oda_convertir_carpeta(carpeta_in, carpeta_out, n_archivos=1, timeout=None):
     """
     Convierte todos los DWG/DXF de carpeta_in a DXF en carpeta_out.
-    Retorna True si OK.
-    Sintaxis ODA: ODAFileConverter <in> <out> <verIn> <verOut> <tipo> <recursivo> <audit>
+    Sintaxis ODA: ODAFileConverter <in> <out> <OutputVersion> <OutputType> <Recursive> <Audit>
     """
     if not os.path.exists(ODA_EXE):
         return False
     os.makedirs(carpeta_out, exist_ok=True)
+    # 60s base + 30s por archivo, mínimo 120s
+    if timeout is None:
+        timeout = max(120, 60 + n_archivos * 30)
     try:
-        r = subprocess.run(
-            [ODA_EXE, carpeta_in, carpeta_out,
-             "ACAD2018", "ACAD2018", "DXF", "0", "1"],
+        subprocess.run(
+            [ODA_EXE, carpeta_in, carpeta_out, "ACAD2018", "DXF", "0", "1"],
             capture_output=True, timeout=timeout
         )
-        return True   # ODA devuelve 0 incluso si algún archivo falla — revisar output
+        return True
     except subprocess.TimeoutExpired:
-        log_warn("ODA timeout en conversión de carpeta")
+        log_warn(f"ODA timeout ({timeout}s) en conversión de carpeta")
         return False
     except Exception as e:
         log_warn(f"ODA error: {e}")
@@ -302,12 +303,15 @@ def analizar_dxf(ruta_dxf, ruta_dwg_original):
             else:
                 r["notas"].append(f"Falta layer {key}")
 
-        # Logo (aplica a todos)
-        logo_ok = "LOGO" in layers_con_ents or "LOGO1" in layers_con_ents
+        # Logo (aplica a todos) — cualquier layer que contenga "LOGO" (case-insensitive)
+        layers_upper = {l.upper() for l in layers_con_ents}
+        logos = [l for l in layers_upper if "LOGO" in l]
+        logos2 = [l for l in logos if "2" in l]
+        logo_ok = len(logos) > 0
         r["logo1_ok"] = logo_ok
-        r["logo2_ok"] = "LOGO2" in layers_con_ents
+        r["logo2_ok"] = len(logos2) > 0
         if not logo_ok:
-            r["notas"].append("Falta layer LOGO / LOGO1")
+            r["notas"].append("Falta layer LOGO")
 
         # Puntos (solo parabrisas)
         if para:
@@ -633,7 +637,7 @@ def main():
                         log_warn(f"  No se pudo copiar {os.path.basename(ruta_orig)}: {ce}")
 
                 log_info(f"  Convirtiendo {len(pendientes)} archivo(s) con ODA...")
-                oda_ok = oda_convertir_carpeta(tmp_in, tmp_out)
+                oda_ok = oda_convertir_carpeta(tmp_in, tmp_out, n_archivos=len(pendientes))
                 if not oda_ok:
                     log_warn("  ODA falló — archivos quedarán como ERROR")
 

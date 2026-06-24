@@ -2277,4 +2277,17 @@ class AGPApp(ctk.CTk):
 
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+    # ── Login ──────────────────────────────────────────────────────────────
+    try:
+        from login_window import LoginWindow
+        login = LoginWindow()
+        login.mainloop()
+        if login.usuario_info is None:
+            sys.exit(0)   # cerró sin loguearse
+        _USUARIO_ACTUAL = login.usuario_info
+    except Exception as _le:
+        print(f"[login] error al mostrar login: {_le} — abriendo app directamente")
+        _USUARIO_ACTUAL = None
+
+    # ── App principal ───────────────────────────────────────────────────────
     AGPApp().mainloop()
