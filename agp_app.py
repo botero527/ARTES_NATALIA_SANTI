@@ -43,10 +43,11 @@ except Exception:
     _MOTOR_OK = False
 
 try:
-    from crear_arte_acad import dialogo_cajetin, pipeline as _pipeline_acad
+    from crear_arte_acad import dialogo_cajetin, pipeline as _pipeline_acad, ErrorGuardadoArte
     _PIPELINE_OK = True
 except Exception:
     _PIPELINE_OK = False
+    class ErrorGuardadoArte(RuntimeError): pass
 
 try:
     from db_app.asignaciones import (
@@ -60,7 +61,23 @@ except Exception:
     _ASIGN_OK = False
 
 import re, math, shutil, json, datetime
+import tkinter as _tk_root
 from tkinter import filedialog, messagebox
+
+def _msgbox_topmost(tipo, titulo, mensaje):
+    """Muestra un messagebox siempre al frente de todas las ventanas."""
+    import tkinter as _tk
+    tmp = _tk.Toplevel()
+    tmp.withdraw()
+    tmp.attributes("-topmost", True)
+    if tipo == "error":
+        messagebox.showerror(titulo, mensaje, parent=tmp)
+    elif tipo == "warning":
+        messagebox.showwarning(titulo, mensaje, parent=tmp)
+    else:
+        messagebox.showinfo(titulo, mensaje, parent=tmp)
+    try: tmp.destroy()
+    except Exception: pass
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  CONFIGURACIÓN
@@ -169,25 +186,32 @@ def _ruta_arte_salida(ruta_dwg, malla="", pieza="", nombre_archivo=""):
     dest  = os.path.join(artes, "BN")
     os.makedirs(dest, exist_ok=True)
 
+    def _limpiar_nombre(s):
+        # Reemplaza caracteres inválidos en nombres de archivo Windows
+        for c in r'/\:*?"<>|':
+            s = s.replace(c, "-")
+        while "  " in s: s = s.replace("  ", " ")
+        while "--" in s: s = s.replace("--", "-")
+        return s.strip("- ")
+
     if nombre_archivo:
-        nombre = nombre_archivo if nombre_archivo.lower().endswith(".dwg") else nombre_archivo + ".dwg"
+        base = nombre_archivo if nombre_archivo.lower().endswith(".dwg") else nombre_archivo + ".dwg"
+        nombre = _limpiar_nombre(os.path.splitext(base)[0]) + ".dwg"
     else:
-        # Formato: P {malla(s)} – {pieza}
-        # Mallas múltiples separadas por "/" en el campo → listarlas con espacio
-        mallas_str = " ".join(
+        # Mallas múltiples separadas por "/" o "," → unir con " - "
+        mallas_str = " - ".join(
             m.strip() for m in malla.replace(",", "/").split("/") if m.strip()
         ) if malla.strip() else ""
         if mallas_str and pieza.strip():
-            nombre = f"P {mallas_str} – {pieza.strip()}.dwg"
+            nombre = f"P {mallas_str} {pieza.strip()}.dwg"
         elif mallas_str:
             nombre = f"P {mallas_str}.dwg"
         elif pieza.strip():
             nombre = f"P {pieza.strip()}.dwg"
         else:
             nombre = "P " + os.path.splitext(os.path.basename(ruta_dwg))[0] + ".dwg"
+        nombre = _limpiar_nombre(os.path.splitext(nombre)[0]) + ".dwg"
 
-    while "  " in nombre:
-        nombre = nombre.replace("  ", " ")
     return os.path.join(dest, nombre)
 
 def _extraer_codigos(ruta):
@@ -235,15 +259,19 @@ def _crear_arte_autocad(ruta_dwg, log_fn=None, valores_cajetin=None,
             raise RuntimeError("AutoCAD no está abierto")
         log_fn(f"  Abriendo: {os.path.basename(ruta_dwg)}")
         doc = acad.Documents.Open(os.path.abspath(ruta_dwg), False, False)
-        time.sleep(2.0)
+        time.sleep(2.5)
         try: doc.Activate(); time.sleep(0.5)
         except Exception: pass
         # Esperar a que AutoCAD termine de cargar el documento
-        for _ in range(20):
+        for _ in range(30):
             try:
-                if doc.FullName: break
+                nombre = doc.FullName
+                if nombre and os.path.exists(nombre):
+                    _ = doc.ModelSpace.Count  # fuerza carga completa
+                    break
             except Exception:
-                time.sleep(0.5)
+                pass
+            time.sleep(0.5)
         n = _pipeline_acad(doc, log_fn=log_fn, valores_cajetin=valores_cajetin,
                            ruta_salida=ruta_salida, perim_index=perim_index,
                            compensar=compensar)
@@ -643,6 +671,9 @@ class TabArte(ctk.CTkFrame):
                     self._log_fn(f"WARN ruta BD: {_re}", "warn")
             if self._on_art_done:
                 self.after(0, self._on_art_done)
+        except ErrorGuardadoArte as e:
+            self._log_fn(f"Arte creado, pero falló al guardar: {e}", "warn")
+            self.after(0, lambda msg=str(e): _msgbox_topmost("warning", "Arte creado — Error al guardar", msg))
         except Exception as e:
             self._log_fn(f"ERROR: {e}", "err")
             self._log_fn(traceback.format_exc(), "err")
@@ -705,13 +736,22 @@ class TabArte(ctk.CTkFrame):
         pythoncom.CoInitialize()
         try:
             # ── 1. Extraer plano ──────────────────────────────────────────────
-            motor = AutoCADMotor()  # AutoCADMotor.init también llama CoInitialize (ref count +1)
+            motor = AutoCADMotor()
             try:
                 motor.extraer_layers(dwg, plano, log_fn=lambda m: self._log_fn(m, "dim"))
             finally:
-                motor.quit()        # libera referencia COM pero NO CoUninitialize
+                motor.quit()
             self._log_fn("Plano extraído ✔", "ok")
-            time.sleep(0.5)
+
+            # Esperar a que AutoCAD termine de cerrar el documento antes del siguiente open
+            time.sleep(2.5)
+            for _intento in range(8):
+                try:
+                    _test = win32com.client.GetActiveObject("AutoCAD.Application")
+                    _test.Documents  # verificar que responde
+                    break
+                except Exception:
+                    time.sleep(0.8)
 
             # ── 2. Crear arte piezas ──────────────────────────────────────────
             n = _crear_arte_autocad(plano, log_fn=lambda m: self._log_fn(m, "dim"),
@@ -746,10 +786,14 @@ class TabArte(ctk.CTkFrame):
                 except Exception as e:
                     self._log_fn(f"Pieza {i+1}: {e}", "warn")
 
+        except ErrorGuardadoArte as e:
+            self._log_fn(f"Arte creado, pero falló al guardar: {e}", "warn")
+            self.after(0, lambda msg=str(e): _msgbox_topmost("warning", "Arte creado — Error al guardar", msg))
         except Exception as e:
             self._log_fn(f"ERROR: {e}", "err")
             self._log_fn(traceback.format_exc(), "err")
             _anular_bd(valores, self._log_fn)
+            self.after(0, lambda msg=str(e): _msgbox_topmost("error", "Error — Todo en Uno", msg))
         finally:
             pythoncom.CoUninitialize()
 
@@ -1090,40 +1134,56 @@ class TabBD(ctk.CTkFrame):
 # ══════════════════════════════════════════════════════════════════════════════
 class TabGestion(ctk.CTkFrame):
     TABS = [
-        ("Vitrojet",  "vitrojet",  "🔬"),
-        ("Mallas G",  "grandes",   "🔷"),
-        ("Mallas P",  "pequenas",  "🔹"),
+        ("Vitrojet",   "vitrojet",    "🔬"),
+        ("Mallas G",   "grandes",     "🔷"),
+        ("Mallas P",   "pequenas",    "🔹"),
+        ("Vinilos",    "vinilos",     "🎨"),
+        ("Pasta Plata","pasta_plata", "🪙"),
     ]
-    # sql, headers visibles, campos BD, pk_col, editable_headers
     QUERIES = {
         "vitrojet": (
-            "SELECT TOP(?) vitro,codigo_malla,tipo_malla,bnerig,vehiculo,version,ruta,responsable,estado "
+            "SELECT TOP(?) vitro,codigo_malla,tipo_malla,bnerig,vehiculo,version,ruta,responsable,estado,modificado_por,modificado_en "
             "FROM mallas.vitrojet {where} ORDER BY TRY_CAST(SUBSTRING(vitro,3,50) AS INT) DESC",
-            ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable","Estado"],
-            ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable","estado"],
+            ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable","Estado","Modificado por","Modificado en"],
+            ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable","estado","modificado_por","modificado_en"],
             "vitro",
         ),
         "grandes": (
-            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado "
+            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado,modificado_por,modificado_en "
             "FROM mallas.grandes {where} ORDER BY TRY_CAST(SUBSTRING(codigo,3,50) AS INT) DESC",
-            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado"],
-            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado"],
+            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado","Modificado por","Modificado en"],
+            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado","modificado_por","modificado_en"],
             "codigo",
         ),
         "pequenas": (
-            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado "
+            "SELECT TOP(?) codigo,cod_veh,descripcion,pieza,tipo,version,ruta_dwg,responsable,estado,modificado_por,modificado_en "
             "FROM mallas.pequenas {where} ORDER BY TRY_CAST(codigo AS INT) DESC",
-            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado"],
-            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado"],
+            ["Código","Cód.Veh.","Descripción","Pieza","Tipo","Versión","Ruta","Responsable","Estado","Modificado por","Modificado en"],
+            ["codigo","cod_veh","descripcion","pieza","tipo","version","ruta_dwg","responsable","estado","modificado_por","modificado_en"],
             "codigo",
+        ),
+        "vinilos": (
+            "SELECT TOP(?) herramental,vehiculo,cod_vehiculo,version,pieza,tipo,ruta,modificado_por,modificado_en "
+            "FROM mallas.vinilos {where} ORDER BY herramental DESC",
+            ["Herramental","Vehículo","Cód.Veh.","Versión","Pieza","Tipo","Ruta","Modificado por","Modificado en"],
+            ["herramental","vehiculo","cod_vehiculo","version","pieza","tipo","ruta","modificado_por","modificado_en"],
+            "herramental",
+        ),
+        "pasta_plata": (
+            "SELECT TOP(?) consecutivo,tipo,vehiculo,cod_vehiculo,version,pieza,ruta_archivo,caso,modificado_por,modificado_en "
+            "FROM mallas.pasta_plata {where} ORDER BY consecutivo DESC",
+            ["Consecutivo","Tipo","Vehículo","Cód.Veh.","Versión","Pieza","Ruta archivo","Caso","Modificado por","Modificado en"],
+            ["consecutivo","tipo","vehiculo","cod_vehiculo","version","pieza","ruta_archivo","caso","modificado_por","modificado_en"],
+            "consecutivo",
         ),
     }
     WHERE = {
-        "vitrojet": "WHERE vitro LIKE ? OR vehiculo LIKE ? OR codigo_malla LIKE ?",
-        "grandes":  "WHERE descripcion LIKE ? OR codigo LIKE ? OR cod_veh LIKE ?",
-        "pequenas": "WHERE descripcion LIKE ? OR CAST(codigo AS NVARCHAR) LIKE ? OR cod_veh LIKE ?",
+        "vitrojet":   "WHERE vitro LIKE ? OR vehiculo LIKE ? OR codigo_malla LIKE ?",
+        "grandes":    "WHERE descripcion LIKE ? OR codigo LIKE ? OR cod_veh LIKE ?",
+        "pequenas":   "WHERE descripcion LIKE ? OR CAST(codigo AS NVARCHAR) LIKE ? OR cod_veh LIKE ?",
+        "vinilos":    "WHERE vehiculo LIKE ? OR herramental LIKE ? OR pieza LIKE ?",
+        "pasta_plata":"WHERE vehiculo LIKE ? OR consecutivo LIKE ? OR pieza LIKE ?",
     }
-    # Campos que el usuario puede editar (nunca el PK)
     EDITABLES = {
         "vitrojet": [
             ("Malla",       "codigo_malla"),
@@ -1152,22 +1212,54 @@ class TabGestion(ctk.CTkFrame):
             ("Ruta",        "ruta_dwg"),
             ("Responsable", "responsable"),
         ],
+        "vinilos": [
+            ("Vehículo",     "vehiculo"),
+            ("Cód. Vehículo","cod_vehiculo"),
+            ("Versión",      "version"),
+            ("Pieza",        "pieza"),
+            ("Tipo",         "tipo"),
+            ("Ruta",         "ruta"),
+        ],
+        "pasta_plata": [
+            ("Tipo",         "tipo"),
+            ("Vehículo",     "vehiculo"),
+            ("Cód. Vehículo","cod_vehiculo"),
+            ("Versión",      "version"),
+            ("Pieza",        "pieza"),
+            ("Ruta archivo", "ruta_archivo"),
+            ("Caso",         "caso"),
+        ],
     }
-    _TABLA = {"vitrojet": "mallas.vitrojet", "grandes": "mallas.grandes", "pequenas": "mallas.pequenas"}
-    _PK    = {"vitrojet": "vitro",           "grandes": "codigo",         "pequenas": "codigo"}
+    _TABLA = {
+        "vitrojet":   "mallas.vitrojet",
+        "grandes":    "mallas.grandes",
+        "pequenas":   "mallas.pequenas",
+        "vinilos":    "mallas.vinilos",
+        "pasta_plata":"mallas.pasta_plata",
+    }
+    _PK = {
+        "vitrojet":   "vitro",
+        "grandes":    "codigo",
+        "pequenas":   "codigo",
+        "vinilos":    "herramental",
+        "pasta_plata":"consecutivo",
+    }
     _COL_W = {
-        "Vitro":90, "Código":85, "Malla":90, "Cód.Veh.":75,
-        "Tipo":60, "B/N":55, "Tipo malla":60,
+        "Vitro":90, "Código":85, "Herramental":100, "Consecutivo":110,
+        "Malla":90, "Cód.Veh.":75, "Tipo":60, "B/N":55,
         "Vehículo":170, "Versión":80, "Descripción":160,
-        "Pieza":110, "Ruta":280, "Responsable":120, "Estado":85,
+        "Pieza":110, "Ruta":260, "Ruta archivo":260,
+        "Responsable":120, "Estado":85, "Caso":80,
+        "Modificado por":140, "Modificado en":130,
     }
 
-    def __init__(self, parent, **kw):
+    def __init__(self, parent, usuario_info=None, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
+        self._usuario         = usuario_info or {}
         self._tab             = "vitrojet"
         self._timer           = None
         self._rows            = []
-        self._on_data_changed = None  # callback → AGPApp notifica a TabBD
+        self._on_data_changed = None
         self._build()
 
     def _build(self):
@@ -1182,13 +1274,13 @@ class TabGestion(ctk.CTkFrame):
         top_in.pack(fill="x", padx=14, pady=(10,6))
         top_in.columnconfigure(0, weight=1)
 
-        # Fila 0: Tabs (Vitrojet / Mallas G / Mallas P)
+        # Fila 0: Tabs
         tab_row = ctk.CTkFrame(top_in, fg_color=PAL["bg"], corner_radius=8)
         tab_row.grid(row=0, column=0, sticky="w", pady=(0,8))
         self._tab_btns = {}
         for i, (lbl, key, icon) in enumerate(self.TABS):
-            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=130, height=36,
-                              corner_radius=8, font=FONT(12),
+            b = ctk.CTkButton(tab_row, text=f"{icon} {lbl}", width=110, height=36,
+                              corner_radius=8, font=FONT(11),
                               fg_color=PAL["accent2"] if key=="vitrojet" else "transparent",
                               hover_color=PAL["border"],
                               command=lambda k=key: self._set_tab(k))
@@ -1409,18 +1501,39 @@ class TabGestion(ctk.CTkFrame):
         msg_lbl.pack(anchor="w", pady=(0,8))
 
         def _guardar():
-            sets   = []
-            params = []
-            for campo, ent in entries_edit.items():
-                v = ent.get().strip() or None
-                sets.append(f"{campo}=?")
-                params.append(v)
-            if not sets: return
-            params.append(pk_val)
-            sql = f"UPDATE {tabla} SET {', '.join(sets)} WHERE {pk_col}=?"
+            nuevos = {campo: (ent.get().strip() or None) for campo, ent in entries_edit.items()}
+            if not nuevos: return
+            usuario_nombre = self._usuario.get("nombre") or self._usuario.get("usuario") or "desconocido"
             try:
-                cn = db_connect()
-                cn.execute(sql, params)
+                cn  = db_connect()
+                cur = cn.cursor()
+
+                # Leer valores actuales para trazabilidad
+                campos_sel = ", ".join(nuevos.keys())
+                cur.execute(f"SELECT {campos_sel} FROM {tabla} WHERE {pk_col}=?", (pk_val,))
+                row_ant = cur.fetchone()
+                valores_ant = {}
+                if row_ant:
+                    for i, campo in enumerate(nuevos.keys()):
+                        valores_ant[campo] = str(row_ant[i]) if row_ant[i] is not None else None
+
+                # UPDATE con modificado_por y modificado_en
+                sets   = [f"{c}=?" for c in nuevos] + ["modificado_por=?", "modificado_en=SYSDATETIME()"]
+                params = list(nuevos.values()) + [usuario_nombre, pk_val]
+                cur.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE {pk_col}=?", params)
+
+                # INSERT en trazabilidad por cada campo que cambió
+                for campo, val_nuevo in nuevos.items():
+                    val_ant = valores_ant.get(campo)
+                    val_nuevo_s = str(val_nuevo) if val_nuevo is not None else None
+                    if val_ant != val_nuevo_s:
+                        cur.execute(
+                            "INSERT INTO MALLAS.TRAZABILIDAD "
+                            "(tabla, pk_campo, pk_valor, campo, valor_anterior, valor_nuevo, usuario) "
+                            "VALUES (?,?,?,?,?,?,?)",
+                            (tabla, pk_col, str(pk_val), campo, val_ant, val_nuevo_s, usuario_nombre)
+                        )
+
                 cn.commit()
                 cn.close()
                 msg_lbl.configure(text="✔ Guardado correctamente", fg="#22c55e")
@@ -1472,6 +1585,9 @@ class TabGestion(ctk.CTkFrame):
                     self.after(400, self._on_data_changed)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
+
+        if tab in ("vinilos", "pasta_plata"):
+            return  # sin botón anular para estas tablas
 
         btn_anular = _tk.Button(btn_f, text="⚠  Quedó mal — Anular",
                                 font=("Segoe UI", 10, "bold"),
@@ -2069,8 +2185,9 @@ class TabRoles(ctk.CTkFrame):
     COLS  = ("Nombre", "Usuario", "Rol", "Estatus")
     ANCHOS = (220, 240, 110, 80)
 
-    def __init__(self, parent, **kw):
+    def __init__(self, parent, usuario_info=None, **kw):
         super().__init__(parent, fg_color="transparent", **kw)
+        self._usuario = usuario_info or {}
         self._rows = []
         self._sel_id = None
         self._build()
@@ -2431,7 +2548,10 @@ class AGPApp(ctk.CTk):
 
         # Instanciar solo las páginas activas para este rol
         for name, icon, cls in self._pages_activas:
-            f = cls(self._content)
+            kwargs = {}
+            if cls in (TabGestion, TabRoles):
+                kwargs["usuario_info"] = self._usuario
+            f = cls(self._content, **kwargs)
             f.place(x=0, y=0, relwidth=1, relheight=1)
             f.place_forget()
             self._frames[name] = f

@@ -78,6 +78,14 @@
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_multiprocessing.py',
    'PYSOURCE'),
+  ('pyi_rth_cryptography_openssl',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_cryptography_openssl.py',
+   'PYSOURCE'),
+  ('pyi_rth_setuptools',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks\\pyi_rth_setuptools.py',
+   'PYSOURCE'),
   ('pyi_rth_pythoncom',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks\\pyi_rth_pythoncom.py',
@@ -93,7 +101,7 @@
  [],
  False,
  False,
- 1782144384,
+ 1782330494,
  [('runw.exe',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',

@@ -33,7 +33,7 @@ class _ConnWrap:
     def __enter__(self): return self
     def __exit__(self, *a): self._c.__exit__(*a)
 
-_EXCEL_DEFAULT = r"C:\Users\abotero\Downloads\LISTADO DE MALLAS Y GLASSJET 2025 (2).xlsx"
+_EXCEL_DEFAULT = r"C:\Users\abotero\Downloads\LISTADO DE MALLAS Y GLASSJET 2025 (3).xlsx"
 # Variable de entorno AGP_EXCEL para sobreescribir la ruta si es necesario.
 EXCEL = os.environ.get("AGP_EXCEL", _EXCEL_DEFAULT)
 

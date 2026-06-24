@@ -5,6 +5,11 @@ Requiere AutoCAD abierto con el plano (_PLANO.dwg) como documento activo.
 Ejecutar:  py crear_arte_acad.py
 """
 
+class ErrorGuardadoArte(RuntimeError):
+    """El arte se creó correctamente pero falló al guardar en disco.
+    NO se deben cancelar los códigos en BD — el arte existe en AutoCAD."""
+    pass
+
 import os, sys, time, math, ctypes, datetime
 
 try:
@@ -468,19 +473,27 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
     def _sugerir_nombre_arte(*_):
         malla = entries["MALLA"].get().strip()
         pieza = entries["PIEZA"].get().strip()
-        partes = [p for p in [malla, pieza] if p]
-        sugerido = ("P " + " ".join(partes) if partes else
-                    "P " + nombre_plano) + ".dwg"
-        while "  " in sugerido:
-            sugerido = sugerido.replace("  ", " ")
+        # Mallas múltiples con "/" → unir con " - " (/ no válido en nombre de archivo)
+        malla_limpia = " - ".join(
+            m.strip() for m in malla.replace(",", "/").split("/") if m.strip()
+        ) if malla else ""
+        partes = [p for p in [malla_limpia, pieza] if p]
+        sugerido = ("P " + " ".join(partes) if partes else "P " + nombre_plano) + ".dwg"
+        # Eliminar cualquier carácter inválido en nombre de archivo
+        for c in r'/\:*?"<>|':
+            sugerido = sugerido.replace(c, "-")
+        while "  " in sugerido: sugerido = sugerido.replace("  ", " ")
+        while "--" in sugerido: sugerido = sugerido.replace("--", "-")
         entries["NOMBRE ARTE"].delete(0, tk.END)
         entries["NOMBRE ARTE"].insert(0, sugerido)
         entries["NOMBRE ARTE"].configure(fg=_C["auto_fg"])
 
-    entries["MALLA"].bind("<FocusOut>", _sugerir_nombre_arte)
-    entries["MALLA"].bind("<Return>",   _sugerir_nombre_arte)
-    entries["PIEZA"].bind("<FocusOut>", _sugerir_nombre_arte)
-    entries["PIEZA"].bind("<Return>",   _sugerir_nombre_arte)
+    entries["MALLA"].bind("<FocusOut>",   _sugerir_nombre_arte)
+    entries["MALLA"].bind("<Return>",     _sugerir_nombre_arte)
+    entries["MALLA"].bind("<KeyRelease>", _sugerir_nombre_arte)
+    entries["PIEZA"].bind("<FocusOut>",   _sugerir_nombre_arte)
+    entries["PIEZA"].bind("<Return>",     _sugerir_nombre_arte)
+    entries["PIEZA"].bind("<KeyRelease>", _sugerir_nombre_arte)
 
     # Pre-llenar
     if nombre_plano:
@@ -558,6 +571,7 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
             entries["MALLA"].delete(0, tk.END)
             entries["MALLA"].insert(0, " / ".join(mallas))
             entries["MALLA"].configure(fg=_C["auto_fg"])
+            _sugerir_nombre_arte()   # actualizar nombre archivo automáticamente
 
         asig_preview.configure(text=" | ".join(partes) if partes else "(sin asignación)",
                                fg=_C["success"])
@@ -1155,9 +1169,10 @@ def pipeline(doc, log_fn=None, valores_cajetin=None, ruta_salida=None, perim_ind
         try:
             doc.SaveAs(abs_salida)
         except Exception as e:
-            raise RuntimeError(
+            raise ErrorGuardadoArte(
                 f"AutoCAD no pudo guardar el archivo:\n{abs_salida}\n\n"
-                f"Verifica acceso a la carpeta de red y que AutoCAD tenga permisos.\nDetalle: {e}"
+                f"El arte SÍ fue creado — guárdalo manualmente desde AutoCAD.\n"
+                f"Verifica acceso a la carpeta de red y permisos.\nDetalle: {e}"
             )
         log_fn(f"  Guardado ✔")
     else:

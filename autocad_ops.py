@@ -89,6 +89,16 @@ class AutoCADMotor:
         ruta_abs = os.path.abspath(ruta)
         doc = self.acad.Documents.Open(ruta_abs, False, readonly)
         time.sleep(espera)
+        # Esperar a que el documento esté completamente cargado
+        for _ in range(30):
+            try:
+                nombre = doc.FullName
+                if nombre and os.path.exists(nombre):
+                    _ = doc.ModelSpace.Count  # fuerza carga completa
+                    break
+            except Exception:
+                pass
+            time.sleep(0.5)
         return doc
 
     def cerrar(self, doc, guardar: bool = False):
@@ -134,10 +144,20 @@ class AutoCADMotor:
         )
 
         if not any([layers_info["perimetro"], layers_info["bn"], layers_info["logo"]]):
+            # Listar todos los layers que tiene el plano para diagnóstico
+            try:
+                todos = [doc.Layers.Item(i).Name for i in range(doc.Layers.Count)]
+            except Exception:
+                todos = []
             self.cerrar(doc, guardar=False)
             raise ValueError(
-                "No se encontraron layers de perimetro, banda negra ni logo.\n"
-                "Verifica que el plano tenga esos layers."
+                f"No se encontraron layers de perímetro, banda negra ni logo.\n\n"
+                f"Layers disponibles en el plano ({len(todos)}):\n"
+                + (", ".join(todos[:30]) or "(ninguno)") +
+                f"\n\nVerifica que el plano tenga layers con nombres que contengan:\n"
+                f"  · Perímetro: PERIMETRO\n"
+                f"  · Banda negra: BN, PHANTOM, BANDA\n"
+                f"  · Logo: LOGO"
             )
 
         # 4. Eliminar objetos fuera de layers objetivo
