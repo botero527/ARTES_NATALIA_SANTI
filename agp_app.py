@@ -1991,7 +1991,7 @@ def _conectar_sap_prod():
             server="agpcol.database.windows.net",
             port=1433,
             user="Consulta",
-            password="@GPgl4$2021",
+            password="@GPgl4$$2021",
             database="agpc-productivity",
             timeout=15,
             login_timeout=15,
@@ -2077,7 +2077,7 @@ class TabScanner(ctk.CTkFrame):
 
         # ══ Zona resultado ═══════════════════════════════════════════════════
         self._zona = ctk.CTkFrame(self, fg_color="transparent")
-        self._zona.grid(row=1, column=0, sticky="nsew", padx=20, pady=16)
+        self._zona.grid(row=1, column=0, sticky="nsew", padx=12, pady=8)
         self._zona.columnconfigure(0, weight=3)
         self._zona.columnconfigure(1, weight=2)
         self._zona.rowconfigure(0, weight=1)
@@ -2095,108 +2095,69 @@ class TabScanner(ctk.CTkFrame):
         hbar.columnconfigure((0, 1), weight=1)
 
         def _id_block(parent, etiqueta, color_bg, color_txt, col_idx):
-            blk = ctk.CTkFrame(parent, fg_color=color_bg, corner_radius=12)
+            blk = ctk.CTkFrame(parent, fg_color=color_bg, corner_radius=10)
             blk.grid(row=0, column=col_idx, sticky="ew",
-                     padx=(12, 6) if col_idx == 0 else (6, 12), pady=10)
+                     padx=(10, 5) if col_idx == 0 else (5, 10), pady=8)
             blk.columnconfigure(0, weight=1)
             ctk.CTkLabel(blk, text=etiqueta, font=FONT(9, "bold"),
-                         text_color=color_txt).pack(anchor="w", padx=14, pady=(10, 0))
-            lbl = ctk.CTkLabel(blk, text="—", font=FONT(28, "bold"),
+                         text_color=color_txt).pack(anchor="w", padx=12, pady=(8, 0))
+            lbl = ctk.CTkLabel(blk, text="—", font=FONT(26, "bold"),
                                text_color="#e6edf3")
-            lbl.pack(anchor="w", padx=14, pady=(2, 10))
+            lbl.pack(anchor="w", padx=12, pady=(0, 8))
             return lbl
 
         self._c_orden = _id_block(hbar, "ORDEN", "#0d1f33", "#58a6ff", 0)
         self._c_zfer  = _id_block(hbar, "ZFER",  "#0d2218", "#3fb950", 1)
 
-        # · Tarjeta Vehículo + datos SAP (card con borde izquierdo azul)
-        # Simulamos borde izquierdo con wrapper
-        wrap_veh = ctk.CTkFrame(col_izq, fg_color="#58a6ff", corner_radius=16)
-        wrap_veh.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        # · Tarjeta Vehículo (borde izquierdo azul)
+        wrap_veh = ctk.CTkFrame(col_izq, fg_color="#58a6ff", corner_radius=14)
+        wrap_veh.grid(row=1, column=0, sticky="ew", pady=(0, 8))
         wrap_veh.columnconfigure(0, weight=1)
-        veh_card = ctk.CTkFrame(wrap_veh, fg_color="#161b22", corner_radius=14)
+        veh_card = ctk.CTkFrame(wrap_veh, fg_color="#161b22", corner_radius=12)
         veh_card.pack(fill="both", expand=True, padx=(4, 0), pady=0)
         veh_card.columnconfigure(1, weight=1)
 
-        # Logo badge grande
+        # Fila 0: logo + nombre vehículo
         self._lbl_logo = ctk.CTkLabel(
-            veh_card, text="", font=FONT(14, "bold"),
+            veh_card, text="", font=FONT(12, "bold"),
             text_color="#0d1117", fg_color="#1f6feb",
-            corner_radius=10, width=64, height=36,
+            corner_radius=8, width=62, height=28,
         )
-        self._lbl_logo.grid(row=0, column=0, padx=(18, 12), pady=(16, 6), sticky="nw")
+        self._lbl_logo.grid(row=0, column=0, padx=(12, 8), pady=(10, 0), sticky="w")
 
+        veh_right = ctk.CTkFrame(veh_card, fg_color="transparent")
+        veh_right.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(10, 0))
+        veh_right.columnconfigure(0, weight=1)
         self._lbl_vehiculo = ctk.CTkLabel(
-            veh_card, text="—", font=FONT(20, "bold"),
+            veh_right, text="—", font=FONT(16, "bold"),
             text_color="#e6edf3", anchor="w",
         )
-        self._lbl_vehiculo.grid(row=0, column=1, sticky="w", pady=(16, 0), padx=(0, 18))
-
+        self._lbl_vehiculo.grid(row=0, column=0, sticky="w")
         self._lbl_version = ctk.CTkLabel(
-            veh_card, text="", font=FONT(12),
+            veh_right, text="", font=FONT(13),
             text_color="#8b949e", anchor="w",
         )
-        self._lbl_version.grid(row=1, column=0, columnspan=2,
-                                sticky="w", padx=18, pady=(0, 6))
+        self._lbl_version.grid(row=1, column=0, sticky="w")
 
-        # Línea divisora
-        ctk.CTkFrame(veh_card, fg_color="#21262d", height=1
-                     ).grid(row=2, column=0, columnspan=2, sticky="ew",
-                            padx=18, pady=(2, 8))
+        # Fila 1: grid 4 celdas — Cliente | Lote | CódVeh | Tipo Pieza
+        info4 = ctk.CTkFrame(veh_card, fg_color="transparent")
+        info4.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(8, 10))
+        info4.columnconfigure((0, 1, 2, 3), weight=1)
 
-        # Fila datos: Cliente | Lote
-        datos_row = ctk.CTkFrame(veh_card, fg_color="transparent")
-        datos_row.grid(row=3, column=0, columnspan=2, sticky="ew",
-                       padx=18, pady=(0, 6))
-        datos_row.columnconfigure((0, 1), weight=1)
+        def _info_cell(parent, titulo, col_n, color_val):
+            ctk.CTkLabel(parent, text=titulo, font=FONT(8, "bold"),
+                         text_color="#484f58").grid(row=0, column=col_n, sticky="w",
+                                                    padx=(0 if col_n == 0 else 8, 0))
+            lbl = ctk.CTkLabel(parent, text="—", font=FONT(14, "bold"),
+                               text_color=color_val, anchor="w")
+            lbl.grid(row=1, column=col_n, sticky="w",
+                     padx=(0 if col_n == 0 else 8, 0))
+            return lbl
 
-        ctk.CTkLabel(datos_row, text="CLIENTE",
-                     font=FONT(8, "bold"), text_color="#484f58"
-                     ).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(datos_row, text="LOTE / TRAZABILIDAD",
-                     font=FONT(8, "bold"), text_color="#484f58"
-                     ).grid(row=0, column=1, sticky="w", padx=(16, 0))
-        self._lbl_cliente = ctk.CTkLabel(
-            datos_row, text="—", font=FONT(13),
-            text_color="#8b949e", anchor="w",
-        )
-        self._lbl_cliente.grid(row=1, column=0, sticky="w")
-        self._lbl_lote = ctk.CTkLabel(
-            datos_row, text="—", font=MONO(13),
-            text_color="#e3b341", anchor="w",
-        )
-        self._lbl_lote.grid(row=1, column=1, sticky="w", padx=(16, 0))
-
-        # Línea divisora 2
-        ctk.CTkFrame(veh_card, fg_color="#21262d", height=1
-                     ).grid(row=4, column=0, columnspan=2, sticky="ew",
-                            padx=18, pady=(6, 8))
-
-        # Chips: Código vehículo + Tipo pieza
-        chips2 = ctk.CTkFrame(veh_card, fg_color="transparent")
-        chips2.grid(row=5, column=0, columnspan=2, sticky="ew",
-                    padx=18, pady=(0, 16))
-        chips2.columnconfigure((0, 1), weight=1)
-
-        frm_cv = ctk.CTkFrame(chips2, fg_color="#161b22", corner_radius=10,
-                               border_width=1, border_color="#30363d")
-        frm_cv.grid(row=0, column=0, sticky="ew", padx=(0, 6))
-        ctk.CTkLabel(frm_cv, text="CÓD. VEHÍCULO",
-                     font=FONT(8, "bold"), text_color="#484f58"
-                     ).pack(anchor="w", padx=10, pady=(8, 0))
-        self._lbl_sap_codveh = ctk.CTkLabel(
-            frm_cv, text="—", font=FONT(13, "bold"), text_color="#79c0ff")
-        self._lbl_sap_codveh.pack(anchor="w", padx=10, pady=(2, 8))
-
-        frm_tp = ctk.CTkFrame(chips2, fg_color="#161b22", corner_radius=10,
-                               border_width=1, border_color="#30363d")
-        frm_tp.grid(row=0, column=1, sticky="ew", padx=(6, 0))
-        ctk.CTkLabel(frm_tp, text="TIPO PIEZA",
-                     font=FONT(8, "bold"), text_color="#484f58"
-                     ).pack(anchor="w", padx=10, pady=(8, 0))
-        self._lbl_sap_tipo = ctk.CTkLabel(
-            frm_tp, text="—", font=FONT(12, "bold"), text_color="#d2a8ff")
-        self._lbl_sap_tipo.pack(anchor="w", padx=10, pady=(2, 8))
+        self._lbl_cliente  = _info_cell(info4, "CLIENTE",        0, "#8b949e")
+        self._lbl_lote     = _info_cell(info4, "LOTE",           1, "#e3b341")
+        self._lbl_sap_codveh = _info_cell(info4, "CÓD. VEH.",    2, "#79c0ff")
+        self._lbl_sap_tipo   = _info_cell(info4, "TIPO PIEZA",   3, "#d2a8ff")
 
         # · Box VITRO (card con borde izquierdo verde)
         wrap_v = ctk.CTkFrame(col_izq, fg_color="#3fb950", corner_radius=16)
@@ -2208,45 +2169,45 @@ class TabScanner(ctk.CTkFrame):
         box_v.columnconfigure(0, weight=1)
 
         vit_hdr = ctk.CTkFrame(box_v, fg_color="transparent")
-        vit_hdr.pack(fill="x", padx=18, pady=(16, 0))
+        vit_hdr.pack(fill="x", padx=14, pady=(12, 0))
         ctk.CTkFrame(vit_hdr, fg_color="#3fb950", width=6, height=6,
-                     corner_radius=3).pack(side="left", padx=(0, 8))
+                     corner_radius=3).pack(side="left", padx=(0, 7))
         ctk.CTkLabel(vit_hdr, text="VITRO", font=FONT(10, "bold"),
                      text_color="#3fb950").pack(side="left")
 
         self._lbl_vitro2 = ctk.CTkLabel(
-            box_v, text="—", font=FONT(22, "bold"),
+            box_v, text="—", font=FONT(20, "bold"),
             text_color="#e6edf3", wraplength=440, justify="left",
         )
-        self._lbl_vitro2.pack(anchor="w", padx=18, pady=(6, 0))
+        self._lbl_vitro2.pack(anchor="w", padx=14, pady=(4, 0))
 
         self._lbl_vitro = ctk.CTkLabel(
             box_v, text="", font=FONT(11),
             text_color="#8b949e", wraplength=440, justify="left",
         )
-        self._lbl_vitro.pack(anchor="w", padx=18, pady=(4, 12))
+        self._lbl_vitro.pack(anchor="w", padx=14, pady=(2, 8))
 
         # Ruta vitro
-        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0d1117", corner_radius=10,
+        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0d1117", corner_radius=8,
                                     border_width=1, border_color="#238636")
-        ruta_card_v.pack(fill="x", padx=18, pady=(0, 18))
+        ruta_card_v.pack(fill="x", padx=14, pady=(0, 14))
         ruta_card_v.columnconfigure(0, weight=1)
         ctk.CTkLabel(ruta_card_v, text="📁  RUTA DWG",
                      font=FONT(9, "bold"), text_color="#3fb950"
                      ).grid(row=0, column=0, columnspan=2, sticky="w",
-                            padx=12, pady=(10, 3))
+                            padx=10, pady=(8, 2))
         self._lbl_vitro_ruta = ctk.CTkLabel(
             ruta_card_v, text="—", font=MONO(11),
             text_color="#8b949e", wraplength=400, justify="left",
         )
-        self._lbl_vitro_ruta.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
+        self._lbl_vitro_ruta.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
         ctk.CTkButton(
-            ruta_card_v, text="📋", width=42, height=32,
-            font=FONT(13), corner_radius=8,
+            ruta_card_v, text="📋", width=40, height=30,
+            font=FONT(13), corner_radius=7,
             fg_color="#0d2218", hover_color="#238636",
             text_color="#3fb950",
             command=self._copiar_ruta_vitro,
-        ).grid(row=1, column=1, padx=(4, 10), pady=(0, 10))
+        ).grid(row=1, column=1, padx=(4, 8), pady=(0, 8))
         self._vitro_ruta_val = ""
 
         # ── Columna derecha: MALLAS ───────────────────────────────────────
@@ -2400,102 +2361,99 @@ class TabScanner(ctk.CTkFrame):
                 if t2 and str(t2).strip() and str(t2).strip() not in t2s:
                     t2s.append(str(t2).strip())
 
-            # ── Calendario (logo, vehículo, lote, cliente) ────────────────
-            cal = {}
-            try:
-                cn_c = _conectar_calendario()
-                cur_c = cn_c.cursor()
-                cur_c.execute(
-                    "SELECT TOP 1 PedidoGenesis, "
-                    "RIGHT('0000000000' + CAST(Lote AS VARCHAR), 10), "
-                    "Logo, ZFER, CodVehiculo, Vehiculo, Version, Cliente, "
-                    "Puestodetrabajo "
-                    "FROM [dbo].[TCAL_CALENDARIO_COLOMBIA_DIRECT] "
-                    "WHERE Orden = ?", (orden,))
-                r = cur_c.fetchone()
-                cn_c.close()
-                if r:
-                    cal = {
-                        "pedido":   str(r[0] or ""),
-                        "lote":     str(r[1] or "").strip(),
-                        "logo":     str(r[2] or "").strip(),
-                        "cod_veh":  str(r[4] or ""),
-                        "vehiculo": str(r[5] or "").strip(),
-                        "version":  str(r[6] or "").strip(),
-                        "cliente":  str(r[7] or "").strip(),
-                    }
-            except Exception:
-                pass
+            # ── Consultas paralelas: Calendario + SAP pieza + Rutas ──────
+            vitro_cod = t2s[0].lstrip(";").strip().split()[0] if t2s else None
+            cal        = {}
+            sap_info   = {}
+            vitro_ruta = None
+            malla_rutas = {m: None for m in mallas}
+            _ruta_err  = None
 
-            # ── SAP Producción: atributos ZFER ───────────────────────────
-            sap_info = {}
-            try:
-                cn_prod = _conectar_sap_prod()
-                cur_p = cn_prod.cursor()
-                cur_p.execute(
-                    "SELECT TEXTO_BREVE_MATERIAL, STATUS, AREA "
-                    "FROM dbo.ODATA_ZFER_HEAD "
-                    "WHERE MATERIAL = ? AND CENTRO = 'CO01'",
-                    (zfer,))
-                rh = cur_p.fetchone()
-                if rh:
-                    sap_info["desc"]   = str(rh[0] or "").strip()
-                    sap_info["status"] = str(rh[1] or "").strip()
-                    sap_info["area"]   = str(rh[2] or "").strip()
-                cur_p.execute(
-                    "SELECT ATNAM, "
-                    "CASE WHEN ATNAM = 'Z_COMMERCIAL_THICKNESS' "
-                    "     THEN CAST(ATFLV AS VARCHAR(50)) ELSE ATWRT END "
-                    "FROM dbo.ODATA_ZFER_CLASS_001 "
-                    "WHERE MATERIAL = ? AND CENTRO = 'CO01' "
-                    "AND ATNAM IN ('Z_AGP_LEVEL','Z_PIECE_TYPE','Z_FORMULA_CODE',"
-                    "              'Z_AGP_PARTNUMBER','Z_COLOR','Z_GEOMETRY_TYPE')",
-                    (zfer,))
-                for atnam, atwrt in cur_p.fetchall():
-                    sap_info[atnam] = str(atwrt or "").strip()
-                cn_prod.close()
-            except Exception:
-                pass
+            def _q_calendario():
+                try:
+                    cn_c = _conectar_calendario()
+                    cur_c = cn_c.cursor()
+                    cur_c.execute(
+                        "SELECT TOP 1 PedidoGenesis, "
+                        "RIGHT('0000000000' + CAST(Lote AS VARCHAR), 10), "
+                        "Logo, ZFER, CodVehiculo, Vehiculo, Version, Cliente "
+                        "FROM [dbo].[TCAL_CALENDARIO_COLOMBIA_DIRECT] "
+                        "WHERE Orden = ?", (orden,))
+                    r = cur_c.fetchone()
+                    cn_c.close()
+                    if r:
+                        cal.update({
+                            "lote": str(r[1] or "").strip(),
+                            "logo": str(r[2] or "").strip(),
+                            "cod_veh": str(r[4] or ""),
+                            "vehiculo": str(r[5] or "").strip(),
+                            "version": str(r[6] or "").strip(),
+                            "cliente": str(r[7] or "").strip(),
+                        })
+                except Exception:
+                    pass
 
-            # ── Rutas BD local ────────────────────────────────────────────
-            vitro_ruta  = None
-            malla_rutas = {}
-            _ruta_err   = None
-            try:
-                cn3 = db_connect()
-                cur3 = cn3.cursor()
-                vitro_cod_raw = t2s[0].lstrip(";").strip() if t2s else None
-                vitro_cod = vitro_cod_raw.split()[0] if vitro_cod_raw else None
-                if vitro_cod:
-                    try:
-                        cur3.execute(
-                            "SELECT TOP 1 ruta FROM mallas.vitrojet WHERE vitro = ?",
-                            (vitro_cod,))
-                        r = cur3.fetchone()
-                        vitro_ruta = str(r[0]).strip() if r and r[0] else None
-                    except Exception:
-                        pass
-                for m in mallas:
-                    m_cod = m.split()[0]
-                    try:
-                        cur3.execute(
-                            "SELECT TOP 1 ruta_dwg FROM mallas.grandes WHERE codigo = ?",
-                            (m_cod,))
-                        r = cur3.fetchone()
-                        if not r or not r[0]:
+            def _q_pieza():
+                # ODATA_ZFER_CLASS_001 está en la BD SAP (misma que ODATA_ZFER_BOM)
+                try:
+                    cn_s = _conectar_sap()
+                    cur_s = cn_s.cursor()
+                    zfer_pad = zfer.zfill(18)
+                    cur_s.execute(
+                        "SELECT ATNAM, ATWRT FROM ODATA_ZFER_CLASS_001 "
+                        "WHERE MATERIAL IN (?, ?) AND ATNAM = 'Z_PIECE_TYPE'",
+                        (zfer, zfer_pad))
+                    for atnam, atwrt in cur_s.fetchall():
+                        sap_info[atnam] = str(atwrt or "").strip()
+                    cn_s.close()
+                except Exception:
+                    pass
+
+            def _q_rutas():
+                nonlocal vitro_ruta, _ruta_err
+                try:
+                    cn3 = db_connect()
+                    cur3 = cn3.cursor()
+                    if vitro_cod:
+                        try:
                             cur3.execute(
-                                "SELECT TOP 1 ruta_dwg FROM mallas.pequenas WHERE codigo = ?",
+                                "SELECT TOP 1 ruta FROM mallas.vitrojet WHERE vitro = ?",
+                                (vitro_cod,))
+                            r = cur3.fetchone()
+                            vitro_ruta = str(r[0]).strip() if r and r[0] else None
+                        except Exception:
+                            pass
+                    for m in mallas:
+                        m_cod = m.split()[0]
+                        try:
+                            cur3.execute(
+                                "SELECT TOP 1 ruta_dwg FROM mallas.grandes WHERE codigo = ?",
                                 (m_cod,))
                             r = cur3.fetchone()
-                        malla_rutas[m] = str(r[0]).strip() if r and r[0] else None
-                    except Exception:
-                        malla_rutas[m] = None
-                cn3.close()
-            except Exception as _e:
-                _ruta_err = str(_e)
+                            if not r or not r[0]:
+                                cur3.execute(
+                                    "SELECT TOP 1 ruta_dwg FROM mallas.pequenas WHERE codigo = ?",
+                                    (m_cod,))
+                                r = cur3.fetchone()
+                            malla_rutas[m] = str(r[0]).strip() if r and r[0] else None
+                        except Exception:
+                            malla_rutas[m] = None
+                    cn3.close()
+                except Exception as _e:
+                    _ruta_err = str(_e)
+
+            # Lanzar las 3 consultas en paralelo
+            _threads = [
+                threading.Thread(target=_q_calendario, daemon=True),
+                threading.Thread(target=_q_pieza,      daemon=True),
+                threading.Thread(target=_q_rutas,      daemon=True),
+            ]
+            for t in _threads: t.start()
+            for t in _threads: t.join(timeout=12)
 
             self.after(0, self._mostrar_resultado, orden, zfer,
-                       " / ".join(t1s) or "—", " / ".join(t2s), mallas,
+                       " / ".join(t1s) or "—",
+                       " / ".join(v.lstrip(";") for v in t2s), mallas,
                        vitro_ruta, malla_rutas, _ruta_err, cal, sap_info)
         except Exception as e:
             self.after(0, self._mostrar_error, str(e)[:120])
@@ -2531,7 +2489,7 @@ class TabScanner(ctk.CTkFrame):
 
         # Info SAP
         tipo_raw = sap_info.get("Z_PIECE_TYPE", "")
-        tipo_txt = _PIEZAS_MAP.get(tipo_raw, tipo_raw or "—")
+        tipo_txt = _PIEZAS_MAP.get(tipo_raw, tipo_raw) if tipo_raw else "—"
         cod_veh  = cal.get("cod_veh", "—") or "—"
         self._lbl_sap_codveh.configure(text=cod_veh)
         self._lbl_sap_tipo.configure(text=tipo_txt)
@@ -2547,7 +2505,7 @@ class TabScanner(ctk.CTkFrame):
                 text=f"Error BD: {ruta_err[:80]}", text_color="#f85149")
         elif vitro_ruta:
             self._lbl_vitro_ruta.configure(
-                text=vitro_ruta, text_color="#e6edf3")
+                text=vitro_ruta, text_color="#3fb950")
         else:
             self._lbl_vitro_ruta.configure(
                 text="— sin ruta registrada —", text_color="#484f58")
