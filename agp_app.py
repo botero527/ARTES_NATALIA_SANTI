@@ -2025,23 +2025,19 @@ class TabScanner(ctk.CTkFrame):
         )
         self._alerta_frame.grid(row=1, column=0, columnspan=2,
                                 sticky="ew", pady=(0, 12))
-        _af_inner = ctk.CTkFrame(self._alerta_frame, fg_color="transparent")
-        _af_inner.pack(fill="x", padx=18, pady=14)
-        _af_inner.columnconfigure(0, weight=1)
+        self._alerta_frame.columnconfigure(0, weight=1)
         self._alerta_lbl = ctk.CTkLabel(
-            _af_inner, text="", font=FONT(13, "bold"),
-            text_color=PAL["orange"], justify="left", wraplength=860,
-            anchor="w",
+            self._alerta_frame, text="", font=FONT(14, "bold"),
+            text_color=PAL["orange"], justify="left", wraplength=820, anchor="w",
         )
-        self._alerta_lbl.grid(row=0, column=0, sticky="w")
-        self._btn_copiar_alerta = ctk.CTkButton(
-            _af_inner, text="📋 Copiar", width=100, height=32,
-            font=FONT(11, "bold"), corner_radius=8,
-            fg_color="#5C3000", hover_color="#7A4000",
-            text_color=PAL["orange"],
+        self._alerta_lbl.grid(row=0, column=0, sticky="w", padx=18, pady=14)
+        ctk.CTkButton(
+            self._alerta_frame, text="📋  COPIAR ALERTA", width=160, height=38,
+            font=FONT(12, "bold"), corner_radius=8,
+            fg_color="#6B3A00", hover_color="#8B5000",
+            text_color="#FFD580",
             command=self._copiar_alerta,
-        )
-        self._btn_copiar_alerta.grid(row=0, column=1, padx=(14, 0))
+        ).grid(row=0, column=1, padx=(8, 18), pady=14)
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
 
@@ -2053,50 +2049,47 @@ class TabScanner(ctk.CTkFrame):
         box_v.grid(row=2, column=0, sticky="nsew", padx=(0, 10), pady=0)
         box_v.columnconfigure(0, weight=1)
 
-        hdr_v = ctk.CTkFrame(box_v, fg_color="transparent")
-        hdr_v.pack(fill="x", padx=24, pady=(20, 0))
-        ctk.CTkLabel(hdr_v, text="VITRO",
-                     font=FONT(13, "bold"), text_color=PAL["accent"]
-                     ).pack(side="left")
+        ctk.CTkLabel(box_v, text="VITRO",
+                     font=FONT(12, "bold"), text_color=PAL["accent"]
+                     ).pack(anchor="w", padx=20, pady=(16, 0))
         ctk.CTkFrame(box_v, fg_color=PAL["accent2"], height=2
-                     ).pack(fill="x", padx=24, pady=(8, 16))
+                     ).pack(fill="x", padx=20, pady=(6, 12))
 
-        # Nombre principal = TEXTO2 (grande / bold)
+        # Nombre principal = TEXTO2
         self._lbl_vitro2 = ctk.CTkLabel(
-            box_v, text="—", font=FONT(26, "bold"),
-            text_color=PAL["txt"], wraplength=480, justify="left",
+            box_v, text="—", font=FONT(20, "bold"),
+            text_color=PAL["txt"], wraplength=500, justify="left",
         )
-        self._lbl_vitro2.pack(anchor="w", padx=24)
+        self._lbl_vitro2.pack(anchor="w", padx=20)
 
         # Código secundario = TEXTO1
         self._lbl_vitro = ctk.CTkLabel(
-            box_v, text="", font=FONT(14),
-            text_color=PAL["txt_mid"], wraplength=480, justify="left",
+            box_v, text="", font=FONT(13),
+            text_color=PAL["txt_mid"], wraplength=500, justify="left",
         )
-        self._lbl_vitro.pack(anchor="w", padx=24, pady=(6, 0))
+        self._lbl_vitro.pack(anchor="w", padx=20, pady=(4, 12))
 
-        ctk.CTkFrame(box_v, fg_color=PAL["border"], height=1
-                     ).pack(fill="x", padx=24, pady=(18, 10))
-
-        # Ruta DWG — label grande + botón copiar
-        ctk.CTkLabel(box_v, text="📁  Ruta DWG",
-                     font=FONT(12, "bold"), text_color=PAL["txt_mid"]
-                     ).pack(anchor="w", padx=24)
-        ruta_row_v = ctk.CTkFrame(box_v, fg_color=PAL["card2"], corner_radius=8)
-        ruta_row_v.pack(fill="x", padx=24, pady=(6, 20))
-        ruta_row_v.columnconfigure(0, weight=1)
+        # ── Ruta DWG vitro — caja prominente ──────────────────────────────
+        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0D2B1A", corner_radius=10,
+                                    border_width=2, border_color=PAL["green2"])
+        ruta_card_v.pack(fill="x", padx=20, pady=(0, 18))
+        ruta_card_v.columnconfigure(0, weight=1)
+        ctk.CTkLabel(ruta_card_v, text="📁  RUTA DWG — VITRO",
+                     font=FONT(11, "bold"), text_color=PAL["green"]
+                     ).grid(row=0, column=0, columnspan=2, sticky="w",
+                            padx=14, pady=(12, 4))
         self._lbl_vitro_ruta = ctk.CTkLabel(
-            ruta_row_v, text="—", font=MONO(12),
-            text_color=PAL["txt"], wraplength=420, justify="left",
+            ruta_card_v, text="—", font=MONO(12),
+            text_color=PAL["txt"], wraplength=440, justify="left",
         )
-        self._lbl_vitro_ruta.grid(row=0, column=0, sticky="w", padx=14, pady=10)
-        self._btn_copiar_ruta_v = ctk.CTkButton(
-            ruta_row_v, text="📋", width=44, height=36,
-            font=FONT(14), corner_radius=6,
-            fg_color=PAL["border"], hover_color=PAL["accent2"],
+        self._lbl_vitro_ruta.grid(row=1, column=0, sticky="w", padx=14, pady=(0, 12))
+        ctk.CTkButton(
+            ruta_card_v, text="📋  COPIAR", width=110, height=36,
+            font=FONT(12, "bold"), corner_radius=8,
+            fg_color="#194D2E", hover_color=PAL["green2"],
+            text_color=PAL["green"],
             command=self._copiar_ruta_vitro,
-        )
-        self._btn_copiar_ruta_v.grid(row=0, column=1, padx=(4, 10), pady=6)
+        ).grid(row=1, column=1, padx=(6, 14), pady=(0, 12))
         self._vitro_ruta_val = ""
 
         # · Mallas
@@ -2108,14 +2101,14 @@ class TabScanner(ctk.CTkFrame):
         box_m.rowconfigure(1, weight=1)
 
         ctk.CTkLabel(box_m, text="MALLAS",
-                     font=FONT(11, "bold"), text_color=PAL["purple"]
-                     ).pack(anchor="w", padx=24, pady=(20, 4))
+                     font=FONT(12, "bold"), text_color=PAL["purple"]
+                     ).pack(anchor="w", padx=20, pady=(16, 4))
         ctk.CTkFrame(box_m, fg_color=PAL["purple"], height=2
-                     ).pack(fill="x", padx=24, pady=(0, 10))
+                     ).pack(fill="x", padx=20, pady=(0, 8))
 
         self._mallas_box = ctk.CTkScrollableFrame(
             box_m, fg_color="transparent", corner_radius=0)
-        self._mallas_box.pack(fill="both", expand=True, padx=16, pady=(0, 16))
+        self._mallas_box.pack(fill="both", expand=True, padx=12, pady=(0, 12))
         self._mallas_box.columnconfigure(0, weight=1)
         self._mallas_labels = []
 
@@ -2281,40 +2274,43 @@ class TabScanner(ctk.CTkFrame):
             text_color=PAL["txt"] if vitro_ruta else PAL["txt_dim"],
         )
 
-        # Mallas: código bold grande + ruta monospace grande + botón copiar
+        # Mallas: nombre + caja ruta igual de prominente que vitro
         for w in self._mallas_labels:
             w.destroy()
         self._mallas_labels.clear()
         for i, m in enumerate(mallas):
-            bg = PAL["card2"] if i % 2 == 0 else PAL["card"]
-            mf = ctk.CTkFrame(self._mallas_box, fg_color=bg, corner_radius=8)
-            mf.grid(row=i, column=0, sticky="ew", pady=3)
+            mf = ctk.CTkFrame(self._mallas_box, fg_color=PAL["card2"],
+                              corner_radius=10, border_width=1,
+                              border_color=PAL["border"])
+            mf.grid(row=i, column=0, sticky="ew", pady=4)
             mf.columnconfigure(0, weight=1)
             ctk.CTkLabel(
                 mf, text=m,
-                font=FONT(16, "bold"), text_color=PAL["txt"],
+                font=FONT(15, "bold"), text_color=PAL["txt"],
                 fg_color="transparent", anchor="w",
-            ).pack(anchor="w", padx=12, pady=(10, 2))
+            ).pack(anchor="w", padx=14, pady=(10, 4))
             ruta_m = malla_rutas.get(m)
-            ruta_row = ctk.CTkFrame(mf, fg_color="transparent")
-            ruta_row.pack(fill="x", padx=8, pady=(0, 10))
-            ruta_row.columnconfigure(0, weight=1)
+            ruta_card = ctk.CTkFrame(mf, fg_color="#0D2B1A", corner_radius=8,
+                                      border_width=1, border_color=PAL["green2"])
+            ruta_card.pack(fill="x", padx=10, pady=(0, 10))
+            ruta_card.columnconfigure(0, weight=1)
             ctk.CTkLabel(
-                ruta_row,
+                ruta_card,
                 text=ruta_m if ruta_m else "— sin ruta registrada —",
                 font=MONO(11),
-                text_color=PAL["txt_mid"] if ruta_m else PAL["txt_dim"],
-                fg_color="transparent", anchor="w",
-            ).grid(row=0, column=0, sticky="w", padx=4)
+                text_color=PAL["txt"] if ruta_m else PAL["txt_dim"],
+                fg_color="transparent", anchor="w", wraplength=320,
+            ).grid(row=0, column=0, sticky="w", padx=10, pady=8)
             if ruta_m:
                 def _mk_copy(r=ruta_m):
                     return lambda: self._copiar(r)
                 ctk.CTkButton(
-                    ruta_row, text="📋", width=38, height=30,
-                    font=FONT(13), corner_radius=6,
-                    fg_color=PAL["border"], hover_color=PAL["accent2"],
+                    ruta_card, text="📋", width=40, height=32,
+                    font=FONT(14), corner_radius=6,
+                    fg_color="#194D2E", hover_color=PAL["green2"],
+                    text_color=PAL["green"],
                     command=_mk_copy(),
-                ).grid(row=0, column=1, padx=(6, 4))
+                ).grid(row=0, column=1, padx=(4, 8), pady=6)
             self._mallas_labels.append(mf)
 
         # Alerta si la carpeta del vitro difiere de alguna malla
