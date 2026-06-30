@@ -1983,6 +1983,48 @@ def _conectar_calendario():
         raise RuntimeError(f"No se pudo conectar a Calendario\n{e}")
 
 
+def _conectar_sap_prod():
+    if _pymssql is None:
+        raise RuntimeError("pymssql no disponible")
+    try:
+        conn = _pymssql.connect(
+            server="agpcol.database.windows.net",
+            port=1433,
+            user="Consulta",
+            password="@GPgl4$2021",
+            database="agpc-productivity",
+            timeout=15,
+            login_timeout=15,
+            charset="UTF-8",
+            tds_version="7.3",
+        )
+        return _ConnWrap(conn)
+    except Exception as e:
+        raise RuntimeError(f"No se pudo conectar a Producción\n{e}")
+
+
+_PIEZAS_MAP = {
+    "000": "Parabrisas",
+    "001": "Lat. Del. Izq.", "002": "Lat. Del. Der.",
+    "003": "Lat. Tra. Izq.", "004": "Lat. Tra. Der.",
+    "005": "Ventilete Tra. Izq.", "006": "Ventilete Tra. Der.",
+    "007": "Cabina Tra. Izq.", "008": "Cabina Tra. Der.",
+    "009": "Posterior", "010": "Techo Solar Del.",
+    "011": "Lat. Ext. Izq.", "012": "Lat. Ext. Der.",
+    "013": "Post. Izq.", "014": "Post. Der.",
+    "015": "Claraboya Izq.", "016": "Claraboya Der.",
+    "017": "Mirilla", "018": "Probeta",
+    "019": "Ventilete Del. Izq.", "020": "Ventilete Del. Der.",
+    "021": "Cabina Del. Izq.", "022": "Cabina Del. Der.",
+    "023": "Cabina Sup. Izq.", "024": "Cabina Sup. Der.",
+    "025": "Techo Solar B", "026": "Parabrisas Der.",
+    "027": "Parabrisas Izq.", "030": "Partición",
+    "031": "Arquitectura", "040": "Pummel",
+    "085": "Post. Secundario", "087": "Techo Solar Céntrico",
+    "088": "Techo Solar D", "090": "Techo Solar Panorámico",
+}
+
+
 class TabScanner(ctk.CTkFrame):
 
     def __init__(self, parent, **kw):
@@ -2001,165 +2043,237 @@ class TabScanner(ctk.CTkFrame):
         import tkinter.ttk as _ttk
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
+        self.configure(fg_color="#0d1117")
 
         # ══ Barra de búsqueda ════════════════════════════════════════════════
-        top = ctk.CTkFrame(self, fg_color=PAL["card"], corner_radius=0)
+        top = ctk.CTkFrame(self, fg_color="#161b22", corner_radius=0)
         top.grid(row=0, column=0, sticky="ew")
         top.columnconfigure(0, weight=1)
         sr = ctk.CTkFrame(top, fg_color="transparent")
-        sr.pack(fill="x", padx=24, pady=16)
+        sr.pack(fill="x", padx=28, pady=20)
         sr.columnconfigure(0, weight=1)
         self._entry = ctk.CTkEntry(
-            sr, placeholder_text="Escanea o escribe el número de orden...",
-            height=56, font=FONT(19),
-            fg_color=PAL["card2"], border_color=PAL["accent"],
-            border_width=2, text_color=PAL["txt"], corner_radius=10,
+            sr, placeholder_text="  🔍  Escanea o escribe el número de orden...",
+            height=62, font=FONT(18),
+            fg_color="#0d1117", border_color="#21262d",
+            border_width=2, text_color="#e6edf3", corner_radius=14,
         )
-        self._entry.grid(row=0, column=0, sticky="ew", padx=(0, 10))
+        self._entry.grid(row=0, column=0, sticky="ew", padx=(0, 12))
         self._entry.bind("<Return>",   lambda _: self._buscar())
         self._entry.bind("<KP_Enter>", lambda _: self._buscar())
         self._entry.focus_set()
         ctk.CTkButton(
-            sr, text="BUSCAR", width=120, height=56,
-            font=FONT(14, "bold"), corner_radius=10,
-            fg_color=PAL["accent2"], hover_color=PAL["accent"],
+            sr, text="  BUSCAR  ", width=130, height=62,
+            font=FONT(14, "bold"), corner_radius=14,
+            fg_color="#1f6feb", hover_color="#388bfd",
+            text_color="white",
             command=self._buscar,
         ).grid(row=0, column=1)
         self._prog = ctk.CTkProgressBar(top, mode="indeterminate",
-                                         height=3, progress_color=PAL["accent"])
+                                         height=2, progress_color="#58a6ff",
+                                         fg_color="#0d1117")
         self._prog.pack(fill="x")
         self._prog.set(0)
 
         # ══ Zona resultado ═══════════════════════════════════════════════════
         self._zona = ctk.CTkFrame(self, fg_color="transparent")
-        self._zona.grid(row=1, column=0, sticky="nsew", padx=16, pady=12)
+        self._zona.grid(row=1, column=0, sticky="nsew", padx=20, pady=16)
         self._zona.columnconfigure(0, weight=3)
         self._zona.columnconfigure(1, weight=2)
-        self._zona.rowconfigure(1, weight=1)
+        self._zona.rowconfigure(0, weight=1)
 
         # ── Columna izquierda ─────────────────────────────────────────────
         col_izq = ctk.CTkFrame(self._zona, fg_color="transparent")
-        col_izq.grid(row=0, column=0, rowspan=2, sticky="nsew", padx=(0, 8))
+        col_izq.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         col_izq.columnconfigure(0, weight=1)
         col_izq.rowconfigure(2, weight=1)
 
-        # · Chips ORDEN | ZFER
-        chips_row = ctk.CTkFrame(col_izq, fg_color="transparent")
-        chips_row.grid(row=0, column=0, sticky="ew", pady=(0, 8))
-        chips_row.columnconfigure((0, 1), weight=1)
-        self._c_orden = self._chip(chips_row, "ORDEN", "—", PAL["accent"], "#0a1a35", col=0)
-        self._c_zfer  = self._chip(chips_row, "ZFER",  "—", PAL["green"],  "#0a2010", col=1)
+        # · Fila ORDEN | ZFER  (header bar unificada)
+        hbar = ctk.CTkFrame(col_izq, fg_color="#161b22", corner_radius=16,
+                             border_width=1, border_color="#21262d")
+        hbar.grid(row=0, column=0, sticky="ew", pady=(0, 10))
+        hbar.columnconfigure((0, 1), weight=1)
 
-        # · Tarjeta Calendario (Vehículo, Logo, Lote, Cliente)
-        self._card_cal = ctk.CTkFrame(col_izq, fg_color=PAL["card"],
-                                       corner_radius=14, border_width=2,
-                                       border_color=PAL["border"])
-        self._card_cal.grid(row=1, column=0, sticky="ew", pady=(0, 8))
-        self._card_cal.columnconfigure(1, weight=1)
+        def _id_block(parent, etiqueta, color_bg, color_txt, col_idx):
+            blk = ctk.CTkFrame(parent, fg_color=color_bg, corner_radius=12)
+            blk.grid(row=0, column=col_idx, sticky="ew",
+                     padx=(12, 6) if col_idx == 0 else (6, 12), pady=10)
+            blk.columnconfigure(0, weight=1)
+            ctk.CTkLabel(blk, text=etiqueta, font=FONT(9, "bold"),
+                         text_color=color_txt).pack(anchor="w", padx=14, pady=(10, 0))
+            lbl = ctk.CTkLabel(blk, text="—", font=FONT(28, "bold"),
+                               text_color="#e6edf3")
+            lbl.pack(anchor="w", padx=14, pady=(2, 10))
+            return lbl
 
-        # logo badge
+        self._c_orden = _id_block(hbar, "ORDEN", "#0d1f33", "#58a6ff", 0)
+        self._c_zfer  = _id_block(hbar, "ZFER",  "#0d2218", "#3fb950", 1)
+
+        # · Tarjeta Vehículo + datos SAP (card con borde izquierdo azul)
+        # Simulamos borde izquierdo con wrapper
+        wrap_veh = ctk.CTkFrame(col_izq, fg_color="#58a6ff", corner_radius=16)
+        wrap_veh.grid(row=1, column=0, sticky="ew", pady=(0, 10))
+        wrap_veh.columnconfigure(0, weight=1)
+        veh_card = ctk.CTkFrame(wrap_veh, fg_color="#161b22", corner_radius=14)
+        veh_card.pack(fill="both", expand=True, padx=(4, 0), pady=0)
+        veh_card.columnconfigure(1, weight=1)
+
+        # Logo badge grande
         self._lbl_logo = ctk.CTkLabel(
-            self._card_cal, text="", font=FONT(13, "bold"),
-            text_color="#0a1a35", fg_color=PAL["accent"],
-            corner_radius=8, width=70, height=32,
+            veh_card, text="", font=FONT(14, "bold"),
+            text_color="#0d1117", fg_color="#1f6feb",
+            corner_radius=10, width=64, height=36,
         )
-        self._lbl_logo.grid(row=0, column=0, padx=(16, 10), pady=(14, 6), sticky="w")
+        self._lbl_logo.grid(row=0, column=0, padx=(18, 12), pady=(16, 6), sticky="nw")
 
         self._lbl_vehiculo = ctk.CTkLabel(
-            self._card_cal, text="—", font=FONT(16, "bold"),
-            text_color=PAL["txt"], anchor="w",
+            veh_card, text="—", font=FONT(20, "bold"),
+            text_color="#e6edf3", anchor="w",
         )
-        self._lbl_vehiculo.grid(row=0, column=1, sticky="w", pady=(14, 6))
+        self._lbl_vehiculo.grid(row=0, column=1, sticky="w", pady=(16, 0), padx=(0, 18))
 
         self._lbl_version = ctk.CTkLabel(
-            self._card_cal, text="", font=FONT(12),
-            text_color=PAL["txt_mid"], anchor="w",
+            veh_card, text="", font=FONT(12),
+            text_color="#8b949e", anchor="w",
         )
         self._lbl_version.grid(row=1, column=0, columnspan=2,
-                                sticky="w", padx=16, pady=(0, 4))
+                                sticky="w", padx=18, pady=(0, 6))
 
-        # Lote y Cliente en fila
-        lote_row = ctk.CTkFrame(self._card_cal, fg_color="transparent")
-        lote_row.grid(row=2, column=0, columnspan=2, sticky="ew",
-                      padx=16, pady=(0, 14))
-        lote_row.columnconfigure(1, weight=1)
-        ctk.CTkLabel(lote_row, text="LOTE / TRAZABILIDAD",
-                     font=FONT(9, "bold"), text_color=PAL["txt_dim"]
+        # Línea divisora
+        ctk.CTkFrame(veh_card, fg_color="#21262d", height=1
+                     ).grid(row=2, column=0, columnspan=2, sticky="ew",
+                            padx=18, pady=(2, 8))
+
+        # Fila datos: Cliente | Lote
+        datos_row = ctk.CTkFrame(veh_card, fg_color="transparent")
+        datos_row.grid(row=3, column=0, columnspan=2, sticky="ew",
+                       padx=18, pady=(0, 6))
+        datos_row.columnconfigure((0, 1), weight=1)
+
+        ctk.CTkLabel(datos_row, text="CLIENTE",
+                     font=FONT(8, "bold"), text_color="#484f58"
                      ).grid(row=0, column=0, sticky="w")
-        ctk.CTkLabel(lote_row, text="CLIENTE",
-                     font=FONT(9, "bold"), text_color=PAL["txt_dim"]
-                     ).grid(row=0, column=1, sticky="w", padx=(20, 0))
-        self._lbl_lote = ctk.CTkLabel(
-            lote_row, text="—", font=MONO(13),
-            text_color=PAL["orange"], anchor="w",
-        )
-        self._lbl_lote.grid(row=1, column=0, sticky="w")
+        ctk.CTkLabel(datos_row, text="LOTE / TRAZABILIDAD",
+                     font=FONT(8, "bold"), text_color="#484f58"
+                     ).grid(row=0, column=1, sticky="w", padx=(16, 0))
         self._lbl_cliente = ctk.CTkLabel(
-            lote_row, text="—", font=FONT(13),
-            text_color=PAL["txt_mid"], anchor="w",
+            datos_row, text="—", font=FONT(13),
+            text_color="#8b949e", anchor="w",
         )
-        self._lbl_cliente.grid(row=1, column=1, sticky="w", padx=(20, 0))
+        self._lbl_cliente.grid(row=1, column=0, sticky="w")
+        self._lbl_lote = ctk.CTkLabel(
+            datos_row, text="—", font=MONO(13),
+            text_color="#e3b341", anchor="w",
+        )
+        self._lbl_lote.grid(row=1, column=1, sticky="w", padx=(16, 0))
 
-        # · Box VITRO
-        box_v = ctk.CTkFrame(col_izq, fg_color=PAL["card"],
-                              corner_radius=14, border_width=2,
-                              border_color=PAL["accent2"])
-        box_v.grid(row=2, column=0, sticky="nsew")
+        # Línea divisora 2
+        ctk.CTkFrame(veh_card, fg_color="#21262d", height=1
+                     ).grid(row=4, column=0, columnspan=2, sticky="ew",
+                            padx=18, pady=(6, 8))
+
+        # Chips: Código vehículo + Tipo pieza
+        chips2 = ctk.CTkFrame(veh_card, fg_color="transparent")
+        chips2.grid(row=5, column=0, columnspan=2, sticky="ew",
+                    padx=18, pady=(0, 16))
+        chips2.columnconfigure((0, 1), weight=1)
+
+        frm_cv = ctk.CTkFrame(chips2, fg_color="#161b22", corner_radius=10,
+                               border_width=1, border_color="#30363d")
+        frm_cv.grid(row=0, column=0, sticky="ew", padx=(0, 6))
+        ctk.CTkLabel(frm_cv, text="CÓD. VEHÍCULO",
+                     font=FONT(8, "bold"), text_color="#484f58"
+                     ).pack(anchor="w", padx=10, pady=(8, 0))
+        self._lbl_sap_codveh = ctk.CTkLabel(
+            frm_cv, text="—", font=FONT(13, "bold"), text_color="#79c0ff")
+        self._lbl_sap_codveh.pack(anchor="w", padx=10, pady=(2, 8))
+
+        frm_tp = ctk.CTkFrame(chips2, fg_color="#161b22", corner_radius=10,
+                               border_width=1, border_color="#30363d")
+        frm_tp.grid(row=0, column=1, sticky="ew", padx=(6, 0))
+        ctk.CTkLabel(frm_tp, text="TIPO PIEZA",
+                     font=FONT(8, "bold"), text_color="#484f58"
+                     ).pack(anchor="w", padx=10, pady=(8, 0))
+        self._lbl_sap_tipo = ctk.CTkLabel(
+            frm_tp, text="—", font=FONT(12, "bold"), text_color="#d2a8ff")
+        self._lbl_sap_tipo.pack(anchor="w", padx=10, pady=(2, 8))
+
+        # · Box VITRO (card con borde izquierdo verde)
+        wrap_v = ctk.CTkFrame(col_izq, fg_color="#3fb950", corner_radius=16)
+        wrap_v.grid(row=2, column=0, sticky="nsew")
+        wrap_v.columnconfigure(0, weight=1)
+        wrap_v.rowconfigure(0, weight=1)
+        box_v = ctk.CTkFrame(wrap_v, fg_color="#161b22", corner_radius=14)
+        box_v.pack(fill="both", expand=True, padx=(4, 0), pady=0)
         box_v.columnconfigure(0, weight=1)
 
-        ctk.CTkLabel(box_v, text="VITRO",
-                     font=FONT(11, "bold"), text_color=PAL["accent"]
-                     ).pack(anchor="w", padx=18, pady=(14, 0))
-        ctk.CTkFrame(box_v, fg_color=PAL["accent2"], height=2
-                     ).pack(fill="x", padx=18, pady=(4, 10))
+        vit_hdr = ctk.CTkFrame(box_v, fg_color="transparent")
+        vit_hdr.pack(fill="x", padx=18, pady=(16, 0))
+        ctk.CTkFrame(vit_hdr, fg_color="#3fb950", width=6, height=6,
+                     corner_radius=3).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(vit_hdr, text="VITRO", font=FONT(10, "bold"),
+                     text_color="#3fb950").pack(side="left")
 
         self._lbl_vitro2 = ctk.CTkLabel(
-            box_v, text="—", font=FONT(20, "bold"),
-            text_color=PAL["txt"], wraplength=460, justify="left",
+            box_v, text="—", font=FONT(22, "bold"),
+            text_color="#e6edf3", wraplength=440, justify="left",
         )
-        self._lbl_vitro2.pack(anchor="w", padx=18)
+        self._lbl_vitro2.pack(anchor="w", padx=18, pady=(6, 0))
 
         self._lbl_vitro = ctk.CTkLabel(
-            box_v, text="", font=FONT(12),
-            text_color=PAL["txt_mid"], wraplength=460, justify="left",
+            box_v, text="", font=FONT(11),
+            text_color="#8b949e", wraplength=440, justify="left",
         )
-        self._lbl_vitro.pack(anchor="w", padx=18, pady=(4, 10))
+        self._lbl_vitro.pack(anchor="w", padx=18, pady=(4, 12))
 
-        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0D2B1A", corner_radius=8,
-                                    border_width=2, border_color=PAL["green2"])
-        ruta_card_v.pack(fill="x", padx=18, pady=(0, 16))
+        # Ruta vitro
+        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0d1117", corner_radius=10,
+                                    border_width=1, border_color="#238636")
+        ruta_card_v.pack(fill="x", padx=18, pady=(0, 18))
         ruta_card_v.columnconfigure(0, weight=1)
-        ctk.CTkLabel(ruta_card_v, text="📁  RUTA DWG — VITRO",
-                     font=FONT(10, "bold"), text_color=PAL["green"]
+        ctk.CTkLabel(ruta_card_v, text="📁  RUTA DWG",
+                     font=FONT(9, "bold"), text_color="#3fb950"
                      ).grid(row=0, column=0, columnspan=2, sticky="w",
                             padx=12, pady=(10, 3))
         self._lbl_vitro_ruta = ctk.CTkLabel(
             ruta_card_v, text="—", font=MONO(11),
-            text_color=PAL["txt"], wraplength=400, justify="left",
+            text_color="#8b949e", wraplength=400, justify="left",
         )
         self._lbl_vitro_ruta.grid(row=1, column=0, sticky="w", padx=12, pady=(0, 10))
         ctk.CTkButton(
-            ruta_card_v, text="📋 COPIAR", width=100, height=32,
-            font=FONT(11, "bold"), corner_radius=7,
-            fg_color="#194D2E", hover_color=PAL["green2"],
-            text_color=PAL["green"],
+            ruta_card_v, text="📋", width=42, height=32,
+            font=FONT(13), corner_radius=8,
+            fg_color="#0d2218", hover_color="#238636",
+            text_color="#3fb950",
             command=self._copiar_ruta_vitro,
-        ).grid(row=1, column=1, padx=(4, 12), pady=(0, 10))
+        ).grid(row=1, column=1, padx=(4, 10), pady=(0, 10))
         self._vitro_ruta_val = ""
 
         # ── Columna derecha: MALLAS ───────────────────────────────────────
-        col_der = ctk.CTkFrame(self._zona, fg_color=PAL["card"],
-                               corner_radius=14, border_width=2,
-                               border_color="#5b21b6")
-        col_der.grid(row=0, column=1, rowspan=2, sticky="nsew", padx=(8, 0))
+        wrap_m = ctk.CTkFrame(self._zona, fg_color="#8957e5", corner_radius=16)
+        wrap_m.grid(row=0, column=1, sticky="nsew", padx=(10, 0))
+        wrap_m.columnconfigure(0, weight=1)
+        wrap_m.rowconfigure(0, weight=1)
+        col_der = ctk.CTkFrame(wrap_m, fg_color="#161b22", corner_radius=14)
+        col_der.pack(fill="both", expand=True, padx=(4, 0), pady=0)
         col_der.columnconfigure(0, weight=1)
         col_der.rowconfigure(1, weight=1)
 
-        ctk.CTkLabel(col_der, text="MALLAS",
-                     font=FONT(11, "bold"), text_color=PAL["purple"]
-                     ).pack(anchor="w", padx=18, pady=(14, 4))
-        ctk.CTkFrame(col_der, fg_color=PAL["purple"], height=2
+        mal_hdr = ctk.CTkFrame(col_der, fg_color="transparent")
+        mal_hdr.pack(fill="x", padx=18, pady=(16, 4))
+        ctk.CTkFrame(mal_hdr, fg_color="#8957e5", width=6, height=6,
+                     corner_radius=3).pack(side="left", padx=(0, 8))
+        ctk.CTkLabel(mal_hdr, text="MALLAS", font=FONT(10, "bold"),
+                     text_color="#d2a8ff").pack(side="left")
+        self._lbl_mallas_count = ctk.CTkLabel(
+            mal_hdr, text="", font=FONT(9),
+            text_color="#484f58", fg_color="#21262d",
+            corner_radius=8, width=24, height=20)
+        self._lbl_mallas_count.pack(side="left", padx=(8, 0))
+
+        ctk.CTkFrame(col_der, fg_color="#21262d", height=1
                      ).pack(fill="x", padx=18, pady=(0, 8))
+
         self._mallas_box = ctk.CTkScrollableFrame(
             col_der, fg_color="transparent", corner_radius=0)
         self._mallas_box.pack(fill="both", expand=True, padx=10, pady=(0, 10))
@@ -2168,43 +2282,51 @@ class TabScanner(ctk.CTkFrame):
 
         # ── Alerta rutas (oculta) ─────────────────────────────────────────
         self._alerta_frame = ctk.CTkFrame(
-            self, fg_color="#3B1800", corner_radius=0,
-            border_width=0,
-        )
+            self, fg_color="#2d1b00", corner_radius=0, border_width=0)
         self._alerta_frame.grid(row=2, column=0, sticky="ew")
         self._alerta_frame.columnconfigure(0, weight=1)
+        # Barra de acento naranja arriba
+        ctk.CTkFrame(self._alerta_frame, fg_color="#f78166", height=2,
+                     corner_radius=0).grid(row=0, column=0, columnspan=2,
+                                           sticky="ew")
         self._alerta_lbl = ctk.CTkLabel(
-            self._alerta_frame, text="", font=FONT(13, "bold"),
-            text_color=PAL["orange"], justify="left", wraplength=900, anchor="w",
+            self._alerta_frame, text="", font=FONT(12, "bold"),
+            text_color="#ffa657", justify="left", wraplength=900, anchor="w",
         )
-        self._alerta_lbl.grid(row=0, column=0, sticky="w", padx=20, pady=12)
+        self._alerta_lbl.grid(row=1, column=0, sticky="w", padx=20, pady=(8, 10))
         ctk.CTkButton(
-            self._alerta_frame, text="📋 COPIAR", width=120, height=34,
+            self._alerta_frame, text="📋 COPIAR ALERTA", width=150, height=32,
             font=FONT(11, "bold"), corner_radius=8,
-            fg_color="#6B3A00", hover_color="#8B5000", text_color="#FFD580",
+            fg_color="#5a2e0e", hover_color="#7a3e10",
+            text_color="#ffa657",
             command=self._copiar_alerta,
-        ).grid(row=0, column=1, padx=(8, 20), pady=12)
+        ).grid(row=1, column=1, padx=(8, 20), pady=(8, 10))
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
 
         # ── Historial ─────────────────────────────────────────────────────
-        card_hist = ctk.CTkFrame(self, fg_color=PAL["card2"], corner_radius=0)
+        card_hist = ctk.CTkFrame(self, fg_color="#0d1117", corner_radius=0,
+                                  border_width=0)
         card_hist.grid(row=3, column=0, sticky="ew")
+
+        # Línea separadora sutil
+        ctk.CTkFrame(card_hist, fg_color="#21262d", height=1,
+                     corner_radius=0).pack(fill="x")
 
         _style = _ttk.Style()
         _style.configure("Hist.Treeview",
-                         background=PAL["card2"], foreground=PAL["txt_mid"],
-                         fieldbackground=PAL["card2"], rowheight=22,
+                         background="#0d1117", foreground="#8b949e",
+                         fieldbackground="#0d1117", rowheight=22,
                          font=("Segoe UI", 9))
         _style.configure("Hist.Treeview.Heading",
-                         background=PAL["card2"], foreground=PAL["accent"],
+                         background="#161b22", foreground="#58a6ff",
                          font=("Segoe UI", 8, "bold"), relief="flat")
         _style.map("Hist.Treeview",
-                   background=[("selected", PAL["accent2"])],
+                   background=[("selected", "#1f6feb")],
                    foreground=[("selected", "white")])
 
         frm_h = ctk.CTkFrame(card_hist, fg_color="transparent")
-        frm_h.pack(fill="x", padx=10, pady=4)
+        frm_h.pack(fill="x", padx=10, pady=6)
         frm_h.grid_rowconfigure(0, weight=1)
         frm_h.grid_columnconfigure(0, weight=1)
         self._tree_hist = _ttk.Treeview(
@@ -2213,8 +2335,8 @@ class TabScanner(ctk.CTkFrame):
             show="headings", height=3,
         )
         for col, w, lbl in [("hora",60,"Hora"),("orden",90,"Orden"),
-                             ("zfer",90,"ZFER"),("logo",70,"Logo"),
-                             ("vehiculo",180,"Vehículo"),("lote",110,"Lote"),
+                             ("zfer",95,"ZFER"),("logo",70,"Logo"),
+                             ("vehiculo",190,"Vehículo"),("lote",110,"Lote"),
                              ("vitro",200,"Vitro"),("mallas",280,"Mallas")]:
             self._tree_hist.heading(col, text=lbl)
             self._tree_hist.column(col, width=w, minwidth=40, stretch=False)
@@ -2231,18 +2353,6 @@ class TabScanner(ctk.CTkFrame):
         self._tree_hist.bind("<Double-1>", self._hist_click)
 
         self._zona.grid_remove()
-
-    def _chip(self, parent, label, value, color, bg, col):
-        frm = ctk.CTkFrame(parent, fg_color=bg, corner_radius=12,
-                            border_width=2, border_color=color)
-        frm.grid(row=0, column=col, sticky="ew",
-                 padx=(0, 6) if col == 0 else (6, 0), pady=(0, 8))
-        ctk.CTkLabel(frm, text=label, font=FONT(10, "bold"),
-                     text_color=color).pack(anchor="w", padx=16, pady=(12, 0))
-        lbl = ctk.CTkLabel(frm, text=value, font=FONT(30, "bold"),
-                           text_color=color)
-        lbl.pack(anchor="w", padx=16, pady=(0, 12))
-        return lbl
 
     # ── Lógica ───────────────────────────────────────────────────────────────
     def _buscar(self):
@@ -2317,6 +2427,36 @@ class TabScanner(ctk.CTkFrame):
             except Exception:
                 pass
 
+            # ── SAP Producción: atributos ZFER ───────────────────────────
+            sap_info = {}
+            try:
+                cn_prod = _conectar_sap_prod()
+                cur_p = cn_prod.cursor()
+                cur_p.execute(
+                    "SELECT TEXTO_BREVE_MATERIAL, STATUS, AREA "
+                    "FROM dbo.ODATA_ZFER_HEAD "
+                    "WHERE MATERIAL = ? AND CENTRO = 'CO01'",
+                    (zfer,))
+                rh = cur_p.fetchone()
+                if rh:
+                    sap_info["desc"]   = str(rh[0] or "").strip()
+                    sap_info["status"] = str(rh[1] or "").strip()
+                    sap_info["area"]   = str(rh[2] or "").strip()
+                cur_p.execute(
+                    "SELECT ATNAM, "
+                    "CASE WHEN ATNAM = 'Z_COMMERCIAL_THICKNESS' "
+                    "     THEN CAST(ATFLV AS VARCHAR(50)) ELSE ATWRT END "
+                    "FROM dbo.ODATA_ZFER_CLASS_001 "
+                    "WHERE MATERIAL = ? AND CENTRO = 'CO01' "
+                    "AND ATNAM IN ('Z_AGP_LEVEL','Z_PIECE_TYPE','Z_FORMULA_CODE',"
+                    "              'Z_AGP_PARTNUMBER','Z_COLOR','Z_GEOMETRY_TYPE')",
+                    (zfer,))
+                for atnam, atwrt in cur_p.fetchall():
+                    sap_info[atnam] = str(atwrt or "").strip()
+                cn_prod.close()
+            except Exception:
+                pass
+
             # ── Rutas BD local ────────────────────────────────────────────
             vitro_ruta  = None
             malla_rutas = {}
@@ -2356,17 +2496,18 @@ class TabScanner(ctk.CTkFrame):
 
             self.after(0, self._mostrar_resultado, orden, zfer,
                        " / ".join(t1s) or "—", " / ".join(t2s), mallas,
-                       vitro_ruta, malla_rutas, _ruta_err, cal)
+                       vitro_ruta, malla_rutas, _ruta_err, cal, sap_info)
         except Exception as e:
             self.after(0, self._mostrar_error, str(e)[:120])
 
     def _mostrar_resultado(self, orden, zfer, vitro1, vitro2, mallas,
                            vitro_ruta=None, malla_rutas=None,
-                           ruta_err=None, cal=None):
+                           ruta_err=None, cal=None, sap_info=None):
         self._prog.stop(); self._prog.set(0)
         self._entry.configure(state="normal")
         malla_rutas = malla_rutas or {}
         cal = cal or {}
+        sap_info = sap_info or {}
 
         # Chips
         self._c_orden.configure(text=str(orden))
@@ -2388,6 +2529,14 @@ class TabScanner(ctk.CTkFrame):
         self._lbl_lote.configure(text=lote)
         self._lbl_cliente.configure(text=cliente)
 
+        # Info SAP
+        tipo_raw = sap_info.get("Z_PIECE_TYPE", "")
+        tipo_txt = _PIEZAS_MAP.get(tipo_raw, tipo_raw or "—")
+        cod_veh  = cal.get("cod_veh", "—") or "—"
+        self._lbl_sap_codveh.configure(text=cod_veh)
+        self._lbl_sap_tipo.configure(text=tipo_txt)
+        self._lbl_mallas_count.configure(text=str(len(mallas)) if mallas else "")
+
         # Vitro
         self._lbl_vitro2.configure(text=vitro2 or "—")
         self._lbl_vitro.configure(
@@ -2395,64 +2544,93 @@ class TabScanner(ctk.CTkFrame):
         self._vitro_ruta_val = vitro_ruta or ""
         if ruta_err:
             self._lbl_vitro_ruta.configure(
-                text=f"Error BD: {ruta_err[:80]}", text_color=PAL["red"])
+                text=f"Error BD: {ruta_err[:80]}", text_color="#f85149")
         elif vitro_ruta:
             self._lbl_vitro_ruta.configure(
-                text=vitro_ruta, text_color=PAL["txt"])
+                text=vitro_ruta, text_color="#e6edf3")
         else:
             self._lbl_vitro_ruta.configure(
-                text="— sin ruta registrada —", text_color=PAL["txt_dim"])
+                text="— sin ruta registrada —", text_color="#484f58")
+
+        # Calcular si hay rutas distintas (por directorio)
+        import os.path as _op
+        _vd = _op.dirname(vitro_ruta).lower().rstrip("/\\") if vitro_ruta else None
+        def _misma_dir(r):
+            return _vd and r and _op.dirname(r).lower().rstrip("/\\") == _vd
+
+        # Actualizar label de vitro ruta según si es "común" o solo de vitro
+        rutas_distintas_nombres = [m for m, r in malla_rutas.items()
+                                   if r and not _misma_dir(r)]
+        if vitro_ruta and not rutas_distintas_nombres:
+            todas_rutas = [vitro_ruta] + [r for r in malla_rutas.values() if r]
+            if len([r for r in malla_rutas.values() if r]) > 0:
+                self._lbl_vitro_ruta.configure(
+                    text=vitro_ruta, text_color=PAL["txt"])
+            else:
+                self._lbl_vitro_ruta.configure(
+                    text=vitro_ruta, text_color=PAL["txt"])
 
         # Mallas
         for w in self._mallas_labels:
             w.destroy()
         self._mallas_labels.clear()
+        _nums = ["①","②","③","④","⑤","⑥","⑦","⑧","⑨","⑩",
+                 "⑪","⑫","⑬","⑭","⑮","⑯","⑰","⑱","⑲","⑳"]
         for i, m in enumerate(mallas):
-            mf = ctk.CTkFrame(self._mallas_box, fg_color=PAL["card2"],
-                              corner_radius=10, border_width=1,
-                              border_color=PAL["border"])
-            mf.grid(row=i, column=0, sticky="ew", pady=4)
-            mf.columnconfigure(0, weight=1)
-            ctk.CTkLabel(mf, text=m, font=FONT(14, "bold"),
-                         text_color=PAL["txt"], anchor="w",
-                         fg_color="transparent",
-                         ).pack(anchor="w", padx=12, pady=(10, 4))
+            mf = ctk.CTkFrame(self._mallas_box, fg_color="#0d1117",
+                              corner_radius=12, border_width=1,
+                              border_color="#21262d")
+            mf.grid(row=i, column=0, sticky="ew", pady=(0, 6))
+            mf.columnconfigure(1, weight=1)
+            # Número badge
+            num = _nums[i] if i < len(_nums) else str(i+1)
+            ctk.CTkLabel(mf, text=num, font=FONT(16, "bold"),
+                         text_color="#8957e5", width=32,
+                         ).grid(row=0, column=0, padx=(10, 6), pady=(10, 6), sticky="n")
+            # Nombre malla
+            ctk.CTkLabel(mf, text=m, font=FONT(13, "bold"),
+                         text_color="#e6edf3", anchor="w",
+                         ).grid(row=0, column=1, sticky="w", pady=(10, 6), padx=(0, 10))
             ruta_m = malla_rutas.get(m)
-            rc = ctk.CTkFrame(mf, fg_color="#0D2B1A", corner_radius=7,
-                               border_width=1, border_color=PAL["green2"])
-            rc.pack(fill="x", padx=8, pady=(0, 8))
-            rc.columnconfigure(0, weight=1)
-            ctk.CTkLabel(
-                rc,
-                text=ruta_m if ruta_m else "— sin ruta —",
-                font=MONO(10),
-                text_color=PAL["txt"] if ruta_m else PAL["txt_dim"],
-                anchor="w", wraplength=280,
-            ).grid(row=0, column=0, sticky="w", padx=8, pady=6)
-            if ruta_m:
-                def _mk(r=ruta_m): return lambda: self._copiar(r)
-                ctk.CTkButton(
-                    rc, text="📋", width=36, height=28,
-                    font=FONT(12), corner_radius=6,
-                    fg_color="#194D2E", hover_color=PAL["green2"],
-                    text_color=PAL["green"], command=_mk(),
-                ).grid(row=0, column=1, padx=(2, 6), pady=4)
+            misma = _misma_dir(ruta_m)
+            if misma:
+                ctk.CTkLabel(
+                    mf, text="✓  Misma carpeta que Vitro",
+                    font=FONT(10), text_color="#3fb950", anchor="w",
+                ).grid(row=1, column=0, columnspan=2, sticky="w",
+                       padx=(10, 10), pady=(0, 10))
+            else:
+                rc = ctk.CTkFrame(mf, fg_color="#161b22", corner_radius=8,
+                                   border_width=1, border_color="#30363d")
+                rc.grid(row=1, column=0, columnspan=2, sticky="ew",
+                        padx=8, pady=(0, 8))
+                rc.columnconfigure(0, weight=1)
+                ctk.CTkLabel(
+                    rc,
+                    text=ruta_m if ruta_m else "— sin ruta registrada —",
+                    font=MONO(10),
+                    text_color="#e6edf3" if ruta_m else "#484f58",
+                    anchor="w", wraplength=270,
+                ).grid(row=0, column=0, sticky="w", padx=10, pady=6)
+                if ruta_m:
+                    def _mk(r=ruta_m): return lambda: self._copiar(r)
+                    ctk.CTkButton(
+                        rc, text="📋", width=36, height=28,
+                        font=FONT(12), corner_radius=6,
+                        fg_color="#0d2218", hover_color="#238636",
+                        text_color="#3fb950", command=_mk(),
+                    ).grid(row=0, column=1, padx=(2, 8), pady=4)
             self._mallas_labels.append(mf)
 
         # Alerta rutas
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
-        if vitro_ruta:
-            import os.path as _op
-            vd = _op.dirname(vitro_ruta).lower().rstrip("/\\")
-            distintas = [m for m, r in malla_rutas.items()
-                         if r and _op.dirname(r).lower().rstrip("/\\") != vd]
-            if distintas:
-                self._alerta_txt = (
-                    f"RUTAS DISTINTAS — Vitro: {_op.dirname(vitro_ruta)} | "
-                    f"Malla(s): {', '.join(distintas)}")
-                self._alerta_lbl.configure(text=f"⚠  {self._alerta_txt}")
-                self._alerta_frame.grid()
+        if vitro_ruta and rutas_distintas_nombres:
+            self._alerta_txt = (
+                f"RUTAS DISTINTAS — Vitro: {_op.dirname(vitro_ruta)} | "
+                f"Malla(s): {', '.join(rutas_distintas_nombres)}")
+            self._alerta_lbl.configure(text=f"⚠  {self._alerta_txt}")
+            self._alerta_frame.grid()
 
         hora = time.strftime("%H:%M:%S")
         mallas_str = " | ".join(mallas[:3]) + (" ..." if len(mallas) > 3 else "")
@@ -2493,6 +2671,9 @@ class TabScanner(ctk.CTkFrame):
         self._lbl_version.configure(text="")
         self._lbl_lote.configure(text="—")
         self._lbl_cliente.configure(text="—")
+        self._lbl_sap_codveh.configure(text="—")
+        self._lbl_sap_tipo.configure(text="—")
+        self._lbl_mallas_count.configure(text="")
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
         self._zona.grid()
