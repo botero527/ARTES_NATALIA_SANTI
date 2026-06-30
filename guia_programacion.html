@@ -1,0 +1,1031 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>De Parcero a Parcero — Guía de Programación</title>
+<style>
+  :root {
+    --bg:       #0e1118;
+    --surface:  #161c2d;
+    --surface2: #1d2540;
+    --border:   #2a3350;
+    --amber:    #f59e0b;
+    --amber2:   #fbbf24;
+    --teal:     #06b6d4;
+    --green:    #22c55e;
+    --red:      #ef4444;
+    --purple:   #a78bfa;
+    --txt:      #e8eaf0;
+    --txt-mid:  #8892a4;
+    --txt-dim:  #4b5568;
+    --code-bg:  #0a0e1a;
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  html { scroll-behavior: smooth; }
+
+  body {
+    background: var(--bg);
+    color: var(--txt);
+    font-family: -apple-system, 'Segoe UI', system-ui, sans-serif;
+    font-size: 16px;
+    line-height: 1.7;
+  }
+
+  /* ── layout ── */
+  .shell {
+    display: flex;
+    min-height: 100vh;
+  }
+
+  nav {
+    width: 230px;
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    height: 100vh;
+    overflow-y: auto;
+    background: var(--surface);
+    border-right: 1px solid var(--border);
+    padding: 28px 0 40px;
+  }
+
+  nav .logo {
+    padding: 0 20px 24px;
+    border-bottom: 1px solid var(--border);
+    margin-bottom: 16px;
+  }
+  nav .logo span {
+    display: block;
+    font-size: 11px;
+    letter-spacing: .12em;
+    text-transform: uppercase;
+    color: var(--txt-mid);
+    margin-bottom: 4px;
+  }
+  nav .logo strong {
+    font-size: 15px;
+    color: var(--amber);
+  }
+
+  nav a {
+    display: block;
+    padding: 7px 20px;
+    color: var(--txt-mid);
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 2px solid transparent;
+    transition: color .15s, border-color .15s;
+  }
+  nav a:hover { color: var(--txt); border-left-color: var(--border); }
+  nav a.active { color: var(--amber); border-left-color: var(--amber); }
+  nav .nav-section {
+    padding: 14px 20px 4px;
+    font-size: 10px;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--txt-dim);
+  }
+
+  main {
+    flex: 1;
+    max-width: 820px;
+    padding: 48px 52px 80px;
+  }
+
+  /* ── tipografía ── */
+  h1 {
+    font-size: 32px;
+    font-weight: 700;
+    line-height: 1.2;
+    color: var(--txt);
+    text-wrap: balance;
+    margin-bottom: 10px;
+  }
+  h1 em { color: var(--amber); font-style: normal; }
+
+  .subtitle {
+    color: var(--txt-mid);
+    font-size: 15px;
+    margin-bottom: 40px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--txt);
+    margin: 52px 0 16px;
+    padding-top: 8px;
+    text-wrap: balance;
+  }
+  h2 .num {
+    color: var(--amber);
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    display: block;
+    margin-bottom: 4px;
+  }
+
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--amber2);
+    margin: 28px 0 8px;
+  }
+
+  p { margin-bottom: 14px; color: var(--txt); }
+  p + p { margin-top: -4px; }
+
+  strong { color: var(--txt); font-weight: 600; }
+  em { color: var(--teal); font-style: normal; font-weight: 500; }
+
+  /* ── código ── */
+  code {
+    font-family: 'Consolas', 'JetBrains Mono', 'Courier New', monospace;
+    font-size: 13.5px;
+    background: var(--code-bg);
+    color: var(--amber2);
+    padding: 2px 6px;
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow-x: auto;
+    margin: 16px 0 20px;
+    position: relative;
+  }
+  pre .lang-tag {
+    position: absolute;
+    top: 10px;
+    right: 14px;
+    font-size: 10px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    color: var(--txt-dim);
+    font-family: monospace;
+  }
+  pre code {
+    display: block;
+    padding: 20px 20px;
+    background: none;
+    color: var(--txt);
+    border: none;
+    font-size: 13.5px;
+    line-height: 1.65;
+    white-space: pre;
+  }
+
+  /* syntax coloring via spans */
+  .kw  { color: #c792ea; }   /* keyword: def, class, if, for */
+  .fn  { color: #82aaff; }   /* función */
+  .st  { color: #c3e88d; }   /* string */
+  .cm  { color: #546e7a; font-style: italic; }  /* comment */
+  .nb  { color: var(--amber2); }  /* número / builtin */
+  .tp  { color: var(--teal); }    /* tipo / clase */
+
+  /* ── callouts ── */
+  .callout {
+    border-radius: 10px;
+    padding: 16px 20px;
+    margin: 18px 0;
+    border-left: 3px solid;
+    font-size: 14.5px;
+  }
+  .callout.info  { background: #0d1f35; border-color: var(--teal);   color: #b0e8f0; }
+  .callout.tip   { background: #1a1500; border-color: var(--amber);  color: #fde68a; }
+  .callout.real  { background: #101a10; border-color: var(--green);  color: #bbf7d0; }
+  .callout.warn  { background: #1e0e0e; border-color: var(--red);    color: #fca5a5; }
+  .callout strong { color: inherit; font-weight: 700; }
+
+  /* ── comparación ── */
+  .compare {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin: 16px 0;
+  }
+  .compare-box {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 14px 16px;
+  }
+  .compare-box .label {
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    margin-bottom: 8px;
+    font-weight: 600;
+  }
+  .compare-box .label.bad  { color: var(--red); }
+  .compare-box .label.good { color: var(--green); }
+  .compare-box code { background: none; border: none; padding: 0; font-size: 13px; }
+
+  /* ── tabla ── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+    margin: 16px 0;
+  }
+  th {
+    text-align: left;
+    padding: 10px 14px;
+    background: var(--surface2);
+    color: var(--txt-mid);
+    font-size: 11px;
+    letter-spacing: .08em;
+    text-transform: uppercase;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  td code { font-size: 12.5px; }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: var(--surface); }
+
+  /* ── divider ── */
+  hr {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 48px 0;
+  }
+
+  /* ── pill ── */
+  .pill {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 99px;
+    font-size: 12px;
+    font-weight: 600;
+    margin-right: 6px;
+  }
+  .pill.amber  { background: #2a1e00; color: var(--amber2); }
+  .pill.teal   { background: #001f2a; color: var(--teal); }
+  .pill.purple { background: #1a1030; color: var(--purple); }
+  .pill.green  { background: #051a0e; color: var(--green); }
+
+  @media (max-width: 860px) {
+    nav { display: none; }
+    main { padding: 32px 24px 60px; }
+    .compare { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ── NAVEGACIÓN ── -->
+<nav>
+  <div class="logo">
+    <span>Guía</span>
+    <strong>Dev de Parcero a Parcero</strong>
+  </div>
+
+  <span class="nav-section">Lo básico</span>
+  <a href="#s1">1 · Variables y tipos</a>
+  <a href="#s2">2 · Funciones</a>
+  <a href="#s3">3 · Condicionales y loops</a>
+
+  <span class="nav-section">Intermedio</span>
+  <a href="#s4">4 · Clases y POO</a>
+  <a href="#s5">5 · Excepciones</a>
+  <a href="#s6">6 · Módulos e imports</a>
+
+  <span class="nav-section">En tu proyecto</span>
+  <a href="#s7">7 · Threads (hilos)</a>
+  <a href="#s8">8 · Bases de datos / SQL</a>
+  <a href="#s9">9 · Interfaces gráficas</a>
+  <a href="#s10">10 · Eventos y callbacks</a>
+
+  <span class="nav-section">Conceptos clave</span>
+  <a href="#s11">11 · Librería vs Framework vs API</a>
+  <a href="#s12">12 · Git y control de versiones</a>
+  <a href="#s13">13 · Cómo pensar como dev</a>
+</nav>
+
+<!-- ── CONTENIDO ── -->
+<main>
+
+  <h1>De <em>Parcero</em> a Parcero<br>Guía de Programación</h1>
+  <p class="subtitle">Todo lo que usamos en el proyecto AGP, explicado desde cero con ejemplos reales. Sin palabrería rara.</p>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s1">
+    <h2><span class="num">01 · Fundamentos</span>Variables y Tipos de Datos</h2>
+
+    <p>Una <strong>variable</strong> es una caja con nombre donde guardas información. Python no te exige decir qué tipo de cosa vas a guardar — él lo deduce solo.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">nombre</span>       = <span class="st">"Juan"</span>           <span class="cm"># str  → texto</span>
+<span class="kw">edad</span>         = <span class="nb">25</span>              <span class="cm"># int  → número entero</span>
+<span class="kw">precio</span>       = <span class="nb">3.14</span>            <span class="cm"># float → número decimal</span>
+<span class="kw">activo</span>       = <span class="nb">True</span>            <span class="cm"># bool → verdadero/falso</span>
+<span class="kw">nada</span>         = <span class="nb">None</span>            <span class="cm"># None → "vacío", no existe</span>
+
+<span class="cm"># Listas → varias cosas en orden</span>
+<span class="kw">mallas</span> = [<span class="st">"M-001"</span>, <span class="st">"M-002"</span>, <span class="st">"M-003"</span>]
+mallas[<span class="nb">0</span>]  <span class="cm"># → "M-001"  (empieza en 0, siempre)</span>
+
+<span class="cm"># Diccionarios → llave → valor, como un formulario</span>
+<span class="kw">usuario</span> = {
+    <span class="st">"nombre"</span>:   <span class="st">"Natalia"</span>,
+    <span class="st">"rol"</span>:      <span class="st">"admin"</span>,
+    <span class="st">"es_admin"</span>: <span class="nb">True</span>,
+}
+usuario[<span class="st">"rol"</span>]  <span class="cm"># → "admin"</span></code></pre>
+
+    <div class="callout real">
+      <strong>En tu proyecto lo viste así:</strong><br>
+      El diccionario <code>_PERMISOS</code> en <code>agp_app.py</code> usa exactamente esto — llave = nombre de pestaña, valor = conjunto de roles que pueden verla.
+    </div>
+
+    <h3>F-strings — la forma pro de armar texto</h3>
+    <p>En vez de sumar strings con <code>+</code>, metes variables directo adentro con <code>f"..."</code>:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span>vitro = <span class="st">"V-0042"</span>
+malla = <span class="st">"M-0010"</span>
+
+<span class="cm"># Viejo y feo:</span>
+log(<span class="st">"Asignado vitro "</span> + vitro + <span class="st">" y malla "</span> + malla)
+
+<span class="cm"># Pro con f-string:</span>
+log(<span class="st">f"Asignado vitro </span>{vitro}<span class="st"> y malla </span>{malla}<span class="st">"</span>)
+<span class="cm"># → "Asignado vitro V-0042 y malla M-0010"</span></code></pre>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s2">
+    <h2><span class="num">02 · Fundamentos</span>Funciones — Bloques Reutilizables</h2>
+
+    <p>Una función es un bloque de código con nombre que puedes llamar cuantas veces quieras. Parámetros son lo que le mandas; <code>return</code> es lo que te devuelve.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">def</span> <span class="fn">saludar</span>(nombre):
+    <span class="kw">return</span> <span class="st">f"Hola, </span>{nombre}<span class="st">!"</span>
+
+saludar(<span class="st">"Natalia"</span>)  <span class="cm"># → "Hola, Natalia!"</span>
+saludar(<span class="st">"Luis"</span>)     <span class="cm"># → "Hola, Luis!"  ← misma función, diferente dato</span></code></pre>
+
+    <h3>Parámetros con valor por defecto</h3>
+    <p>Si no mandas ese parámetro, usa el valor que pusiste por defecto:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">def</span> <span class="fn">conectar</span>(host, puerto=<span class="nb">1433</span>, timeout=<span class="nb">30</span>):
+    <span class="kw">return</span> <span class="st">f"Conectando a </span>{host}<span class="st">:</span>{puerto}<span class="st">..."</span>
+
+conectar(<span class="st">"azure.sql.com"</span>)            <span class="cm"># usa puerto=1433, timeout=30</span>
+conectar(<span class="st">"azure.sql.com"</span>, puerto=<span class="nb">5432</span>)  <span class="cm"># cambia solo el puerto</span></code></pre>
+
+    <div class="callout real">
+      <strong>En tu proyecto:</strong> <code>_limpiar_nombre(s)</code>, <code>_ruta_arte_salida()</code>, <code>_anular_bd()</code> — todas son funciones así. Las defines una vez, las llamas desde donde las necesites.
+    </div>
+
+    <h3>Lambda — función en una línea</h3>
+    <p>Para funciones cortitas que solo usas una vez, Python tiene <code>lambda</code>:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># En vez de definir una función aparte:</span>
+<span class="kw">def</span> <span class="fn">doble</span>(x): <span class="kw">return</span> x * <span class="nb">2</span>
+
+<span class="cm"># Lambda hace lo mismo en una línea:</span>
+doble = <span class="kw">lambda</span> x: x * <span class="nb">2</span>
+
+<span class="cm"># En tu proyecto lo viste así — pasando funciones a botones:</span>
+btn = ctk.CTkButton(text=<span class="st">"Guardar"</span>, command=<span class="kw">lambda</span>: guardar(datos))</code></pre>
+
+    <div class="callout tip">
+      <strong>Regla de oro:</strong> Si el mismo bloque de código aparece 2 veces en tu código, conviértelo en función. Si aparece 3 veces y no es función, hay un problema.
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s3">
+    <h2><span class="num">03 · Fundamentos</span>Condicionales y Loops</h2>
+
+    <h3>if / elif / else</h3>
+    <pre><code class="lang-python"><span class="lang-tag">python</span>rol = <span class="st">"planta"</span>
+
+<span class="kw">if</span> rol == <span class="st">"admin"</span>:
+    print(<span class="st">"Acceso total"</span>)
+<span class="kw">elif</span> rol == <span class="st">"dibujante"</span>:
+    print(<span class="st">"Puede crear artes"</span>)
+<span class="kw">elif</span> rol == <span class="st">"planta"</span>:
+    print(<span class="st">"Solo scanner"</span>)
+<span class="kw">else</span>:
+    print(<span class="st">"Sin acceso"</span>)</code></pre>
+
+    <h3>for — recorrer una lista</h3>
+    <pre><code class="lang-python"><span class="lang-tag">python</span>mallas = [<span class="st">"M-001"</span>, <span class="st">"M-002"</span>, <span class="st">"M-003"</span>]
+
+<span class="kw">for</span> malla <span class="kw">in</span> mallas:
+    print(<span class="st">f"Procesando: </span>{malla}<span class="st">"</span>)
+<span class="cm"># → Procesando: M-001</span>
+<span class="cm"># → Procesando: M-002</span>
+<span class="cm"># → Procesando: M-003</span>
+
+<span class="cm"># Si también necesitas el número de posición:</span>
+<span class="kw">for</span> i, malla <span class="kw">in</span> enumerate(mallas):
+    print(<span class="st">f"</span>{i+<span class="nb">1</span>}<span class="st">. </span>{malla}<span class="st">"</span>)
+<span class="cm"># → 1. M-001, 2. M-002, 3. M-003</span></code></pre>
+
+    <h3>while — repetir hasta que algo cambie</h3>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># En tu proyecto: esperamos hasta que AutoCAD cargue el archivo</span>
+intentos = <span class="nb">0</span>
+<span class="kw">while</span> intentos < <span class="nb">30</span>:
+    <span class="kw">try</span>:
+        nombre = doc.FullName      <span class="cm"># si falla, lanza excepción</span>
+        <span class="kw">if</span> nombre:
+            <span class="kw">break</span>                  <span class="cm"># ← salir del while cuando ya cargó</span>
+    <span class="kw">except</span>:
+        <span class="kw">pass</span>
+    time.sleep(<span class="nb">0.5</span>)
+    intentos += <span class="nb">1</span></code></pre>
+
+    <div class="callout info">
+      <strong>break y continue:</strong><br>
+      <code>break</code> = "sal del loop ya mismo".<br>
+      <code>continue</code> = "salta esta vuelta, ve a la siguiente".<br>
+      <code>pass</code> = "no hagas nada" (placeholder para no dejar el bloque vacío).
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s4">
+    <h2><span class="num">04 · Intermedio</span>Clases y Programación Orientada a Objetos (POO)</h2>
+
+    <p>Una <strong>clase</strong> es un molde para crear objetos. Un objeto tiene <strong>atributos</strong> (datos que guarda) y <strong>métodos</strong> (cosas que puede hacer).</p>
+
+    <p>Piénsalo así: <em>Clase</em> = plano de un carro. <em>Objeto</em> = el carro físico que fabricas con ese plano.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">class</span> <span class="tp">AutoCADMotor</span>:
+    <span class="cm"># __init__ se llama automático cuando creas el objeto</span>
+    <span class="cm"># "self" es el objeto mismo — siempre es el primer parámetro</span>
+    <span class="kw">def</span> <span class="fn">__init__</span>(self):
+        self.acad = win32com.GetActiveObject(<span class="st">"AutoCAD.Application"</span>)
+
+    <span class="kw">def</span> <span class="fn">abrir</span>(self, ruta):
+        doc = self.acad.Documents.Open(ruta)
+        <span class="kw">return</span> doc
+
+    <span class="kw">def</span> <span class="fn">quit</span>(self):
+        self.acad = <span class="nb">None</span>
+
+<span class="cm"># Usar la clase:</span>
+motor = <span class="tp">AutoCADMotor</span>()   <span class="cm"># → llama __init__, crea el objeto</span>
+doc   = motor.abrir(<span class="st">"C:/planos/pieza.dwg"</span>)
+motor.quit()</code></pre>
+
+    <h3>Herencia — reutilizar una clase base</h3>
+    <p>Si una clase nueva es "parecida a" otra, puede <strong>heredar</strong> todo su comportamiento y solo agregar o cambiar lo que necesita:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># ctk.CTkFrame es la clase base de customtkinter</span>
+<span class="cm"># TabBD hereda todo de CTkFrame y agrega lo suyo</span>
+
+<span class="kw">class</span> <span class="tp">TabBD</span>(ctk.CTkFrame):         <span class="cm"># ← hereda de CTkFrame</span>
+    <span class="kw">def</span> <span class="fn">__init__</span>(self, parent, **kw):
+        super().__init__(parent, **kw)  <span class="cm"># ← llama el __init__ del padre</span>
+        self._tab = <span class="st">"vitrojet"</span>
+        self._build()
+
+    <span class="kw">def</span> <span class="fn">_build</span>(self):
+        <span class="cm"># aquí construyes la interfaz</span>
+        ...</code></pre>
+
+    <div class="callout real">
+      <strong>En tu proyecto:</strong> <code>TabBD</code>, <code>TabArte</code>, <code>TabGestion</code>, <code>TabRoles</code>, <code>TabScanner</code> — todas son clases que heredan de <code>ctk.CTkFrame</code>. Cada una es una "página" de la app.
+    </div>
+
+    <h3>self — ¿qué es exactamente?</h3>
+    <p><code>self</code> es la referencia al objeto mismo. Es como decir "yo" desde adentro de la clase. Cuando haces <code>self._tab = "vitrojet"</code> estás guardando ese dato en este objeto específico, no en todos los objetos de esa clase.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span>tab1 = <span class="tp">TabBD</span>(app)
+tab2 = <span class="tp">TabBD</span>(app)
+
+tab1._tab = <span class="st">"vitrojet"</span>
+tab2._tab = <span class="st">"grandes"</span>
+
+<span class="cm"># Son objetos distintos — cada uno tiene su propio ._tab</span>
+print(tab1._tab)  <span class="cm"># → "vitrojet"</span>
+print(tab2._tab)  <span class="cm"># → "grandes"</span></code></pre>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s5">
+    <h2><span class="num">05 · Intermedio</span>Excepciones — Manejar Errores sin Caerse</h2>
+
+    <p>Cuando algo falla en Python, lanza una <strong>excepción</strong>. Si no la atrapas, el programa se muere. Con <code>try/except</code> la atrapas y decides qué hacer.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">try</span>:
+    resultado = <span class="nb">10</span> / <span class="nb">0</span>             <span class="cm"># ← esto falla</span>
+<span class="kw">except</span> ZeroDivisionError <span class="kw">as</span> e:
+    print(<span class="st">f"Error: </span>{e}<span class="st">"</span>)           <span class="cm"># → "Error: division by zero"</span>
+<span class="kw">finally</span>:
+    print(<span class="st">"Esto siempre se ejecuta"</span>)  <span class="cm"># con o sin error</span></code></pre>
+
+    <h3>Crear tus propias excepciones</h3>
+    <p>Puedes crear excepciones personalizadas para situaciones específicas de TU lógica:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># Esto lo hicimos juntos en crear_arte_acad.py</span>
+<span class="kw">class</span> <span class="tp">ErrorGuardadoArte</span>(RuntimeError):
+    <span class="st">"""El arte se creó OK pero falló al guardar en disco."""</span>
+    <span class="kw">pass</span>
+
+<span class="cm"># Luego la lanzamos en SaveAs:</span>
+<span class="kw">try</span>:
+    doc.SaveAs(ruta)
+<span class="kw">except</span> Exception <span class="kw">as</span> e:
+    <span class="kw">raise</span> <span class="tp">ErrorGuardadoArte</span>(<span class="st">f"No se pudo guardar: </span>{e}<span class="st">"</span>)
+
+<span class="cm"># Y en agp_app.py la atrapamos separada para NO cancelar el código BD:</span>
+<span class="kw">except</span> <span class="tp">ErrorGuardadoArte</span> <span class="kw">as</span> e:
+    log(<span class="st">"Arte creado pero falló al guardar"</span>, <span class="st">"warn"</span>)
+    <span class="cm"># NO llamamos _anular_bd() — el arte SÍ existe</span>
+<span class="kw">except</span> Exception <span class="kw">as</span> e:
+    log(<span class="st">f"ERROR: </span>{e}<span class="st">"</span>, <span class="st">"err"</span>)
+    _anular_bd(valores)  <span class="cm"># esto sí cancela porque fue un error real</span></code></pre>
+
+    <div class="callout tip">
+      <strong>Regla práctica:</strong> Siempre atrapa la excepción más específica primero. Python revisa los <code>except</code> de arriba a abajo y se queda con el primero que coincida.
+    </div>
+
+    <h3>Jerarquía de excepciones comunes</h3>
+    <table>
+      <thead><tr><th>Excepción</th><th>Cuándo aparece</th></tr></thead>
+      <tbody>
+        <tr><td><code>FileNotFoundError</code></td><td>Intentas abrir un archivo que no existe</td></tr>
+        <tr><td><code>KeyError</code></td><td>Buscas una llave en un dict que no tiene</td></tr>
+        <tr><td><code>IndexError</code></td><td>Accedes a lista[5] pero solo hay 3 elementos</td></tr>
+        <tr><td><code>ValueError</code></td><td>Tipo correcto pero valor inválido (<code>int("hola")</code>)</td></tr>
+        <tr><td><code>TypeError</code></td><td>Operación entre tipos incompatibles</td></tr>
+        <tr><td><code>ConnectionError</code></td><td>Falla de red o BD no responde</td></tr>
+        <tr><td><code>RuntimeError</code></td><td>Error genérico de "algo salió mal en tiempo de ejecución"</td></tr>
+        <tr><td><code>Exception</code></td><td>El padre de casi todas — úsalo como último recurso</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s6">
+    <h2><span class="num">06 · Intermedio</span>Módulos e Imports — Organizar el Código</h2>
+
+    <p>Un <strong>módulo</strong> es simplemente un archivo <code>.py</code>. Cuando tu proyecto crece, partes el código en módulos temáticos y los importas donde los necesites.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># Tu proyecto tiene esta estructura:</span>
+<span class="cm">#</span>
+<span class="cm"># macro_natalia/</span>
+<span class="cm">#   agp_app.py          ← app principal (UI)</span>
+<span class="cm">#   autocad_ops.py      ← todo lo de AutoCAD</span>
+<span class="cm">#   crear_arte_acad.py  ← pipeline de crear artes</span>
+<span class="cm">#   config.py           ← constantes (patrones de layers, etc.)</span>
+<span class="cm">#   db_app/</span>
+<span class="cm">#     asignaciones.py   ← lógica de vitro/malla en BD</span>
+<span class="cm">#     importar_excel.py ← sync del Excel a Azure SQL</span>
+<span class="cm">#     auth.py           ← login y usuarios</span>
+
+<span class="cm"># En agp_app.py importamos lo que necesitamos:</span>
+<span class="kw">from</span> autocad_ops <span class="kw">import</span> AutoCADMotor
+<span class="kw">from</span> crear_arte_acad <span class="kw">import</span> dialogo_cajetin, pipeline, ErrorGuardadoArte
+<span class="kw">from</span> db_app.asignaciones <span class="kw">import</span> asignar_vitro, asignar_malla</code></pre>
+
+    <h3>Tipos de import</h3>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> os                          <span class="cm"># importa todo el módulo</span>
+os.path.exists(<span class="st">"archivo.txt"</span>)
+
+<span class="kw">from</span> os <span class="kw">import</span> path                  <span class="cm"># importa solo "path"</span>
+path.exists(<span class="st">"archivo.txt"</span>)
+
+<span class="kw">from</span> os.path <span class="kw">import</span> exists, join     <span class="cm"># importa funciones específicas</span>
+exists(<span class="st">"archivo.txt"</span>)
+
+<span class="kw">import</span> customtkinter <span class="kw">as</span> ctk          <span class="cm"># alias — lo renombras para abreviar</span>
+ctk.CTkButton(...)                    <span class="cm"># en vez de customtkinter.CTkButton()</span></code></pre>
+
+    <h3>El bloque <code>if __name__ == "__main__":</code></h3>
+    <p>Esto lo ves al final de cada archivo. Significa: "este código solo corre si ejecuto este archivo directamente, no si lo importo desde otro".</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># En agp_app.py:</span>
+<span class="kw">if</span> __name__ == <span class="st">"__main__"</span>:
+    app = <span class="tp">AGPApp</span>()
+    app.mainloop()
+
+<span class="cm"># Si haces  python agp_app.py  → corre la app</span>
+<span class="cm"># Si haces  from agp_app import algo  → NO corre la app, solo importa</span></code></pre>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s7">
+    <h2><span class="num">07 · En tu Proyecto</span>Threads — Hacer Varias Cosas a la Vez</h2>
+
+    <p>Python normalmente corre código línea por línea — una cosa a la vez. El problema: si tienes una operación lenta (conectar a BD, procesar un DWG en AutoCAD), la interfaz gráfica se <strong>congela</strong> y parece que crasheó.</p>
+
+    <p>Los <strong>threads</strong> (hilos) te permiten correr esa operación lenta en un hilo separado mientras la interfaz sigue respondiendo.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> threading
+
+<span class="cm"># SIN thread — la UI se congela mientras procesa:</span>
+<span class="kw">def</span> <span class="fn">_crear_arte</span>(self):
+    time.sleep(<span class="nb">10</span>)         <span class="cm"># ← la ventana muere 10 segundos</span>
+    log(<span class="st">"Listo"</span>)
+
+<span class="cm"># CON thread — la UI sigue viva:</span>
+<span class="kw">def</span> <span class="fn">_crear_arte</span>(self):
+    self._busy(<span class="nb">True</span>)        <span class="cm"># ← muestra spinner</span>
+    threading.Thread(
+        target=self._t_crear,  <span class="cm"># ← función que corre en el hilo</span>
+        daemon=<span class="nb">True</span>           <span class="cm"># ← muere si se cierra la app</span>
+    ).start()
+
+<span class="kw">def</span> <span class="fn">_t_crear</span>(self):          <span class="cm"># este corre en segundo plano</span>
+    time.sleep(<span class="nb">10</span>)
+    self.after(<span class="nb">0</span>, <span class="kw">lambda</span>: log(<span class="st">"Listo"</span>))  <span class="cm"># ← vuelve al hilo UI</span></code></pre>
+
+    <div class="callout warn">
+      <strong>Regla importante:</strong> Nunca toques la interfaz gráfica desde un thread. Siempre usa <code>self.after(0, funcion)</code> para enviarle el mensaje al hilo principal de la UI. Si no, crashea silenciosamente.
+    </div>
+
+    <h3>El patrón que usamos: _accion() lanza, _t_accion() trabaja</h3>
+    <p>En tu proyecto todos los botones siguen este patrón. El nombre del método con <code>_t_</code> significa "thread":</p>
+    <table>
+      <thead><tr><th>Método</th><th>Hilo</th><th>Qué hace</th></tr></thead>
+      <tbody>
+        <tr><td><code>_crear_arte()</code></td><td>UI (principal)</td><td>Valida campos, lanza el thread</td></tr>
+        <tr><td><code>_t_crear()</code></td><td>Background</td><td>Llama AutoCAD, genera el DWG — puede tardar</td></tr>
+        <tr><td><code>_todo_en_uno()</code></td><td>UI (principal)</td><td>Muestra diálogo cajetín, lanza thread</td></tr>
+        <tr><td><code>_t_todo()</code></td><td>Background</td><td>Extraer plano + crear arte + guardar BD</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s8">
+    <h2><span class="num">08 · En tu Proyecto</span>Bases de Datos y SQL</h2>
+
+    <p>Una base de datos es como un Excel gigante pero estructurado, rápido y con múltiples usuarios al mismo tiempo. SQL es el lenguaje para hablar con ella.</p>
+
+    <h3>Las 4 operaciones básicas (CRUD)</h3>
+    <pre><code class="lang-python"><span class="lang-tag">sql</span><span class="cm">-- CREATE → insertar un registro nuevo</span>
+<span class="kw">INSERT INTO</span> mallas.vitrojet (vitro, codigo_malla, vehiculo)
+<span class="kw">VALUES</span> (<span class="st">'V-0042'</span>, <span class="st">'M-0010'</span>, <span class="st">'CHEVROLET TAHOE'</span>);
+
+<span class="cm">-- READ → consultar / buscar</span>
+<span class="kw">SELECT</span> vitro, vehiculo, ruta
+<span class="kw">FROM</span> mallas.vitrojet
+<span class="kw">WHERE</span> vehiculo <span class="kw">LIKE</span> <span class="st">'%TAHOE%'</span>
+<span class="kw">ORDER BY</span> vitro <span class="kw">DESC</span>;
+
+<span class="cm">-- UPDATE → modificar algo que ya existe</span>
+<span class="kw">UPDATE</span> mallas.vitrojet
+<span class="kw">SET</span>    ruta = <span class="st">'\\server\artes\V-0042.dwg'</span>,
+       modificado_por = <span class="st">'abotero'</span>
+<span class="kw">WHERE</span>  vitro = <span class="st">'V-0042'</span>;
+
+<span class="cm">-- DELETE → borrar (úsalo con cuidado)</span>
+<span class="kw">DELETE FROM</span> mallas.vitrojet
+<span class="kw">WHERE</span> vitro = <span class="st">'V-0042'</span>;</code></pre>
+
+    <h3>Cómo Python habla con la BD (pymssql)</h3>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> pymssql
+
+conn = pymssql.connect(server=<span class="st">"tu.database.windows.net"</span>,
+                       user=<span class="st">"admin"</span>, password=<span class="st">"***"</span>,
+                       database=<span class="st">"AGP_BD"</span>)
+cur = conn.cursor()
+
+<span class="cm"># %s es el placeholder — NUNCA armes la query con f-string + datos</span>
+<span class="cm"># porque abre la puerta a SQL Injection (te explico abajo)</span>
+cur.execute(
+    <span class="st">"SELECT nombre FROM MALLAS.APP_USUARIOS WHERE usuario=%s"</span>,
+    (<span class="st">"abotero"</span>,)   <span class="cm"># ← tupla con los valores</span>
+)
+fila = cur.fetchone()   <span class="cm"># una fila</span>
+filas = cur.fetchall()  <span class="cm"># todas las filas</span>
+
+conn.commit()   <span class="cm"># confirmar cambios (INSERT/UPDATE/DELETE)</span>
+conn.close()</code></pre>
+
+    <div class="callout warn">
+      <strong>SQL Injection — nunca hagas esto:</strong><br>
+      <code>f"SELECT * FROM usuarios WHERE usuario='{input_usuario}'"</code><br><br>
+      Si alguien escribe <code>' OR 1=1 --</code> como usuario, esa query se convierte en "dame TODOS los usuarios". Siempre usa <code>%s</code> con parámetros separados.
+    </div>
+
+    <h3>Transacciones — o todo o nada</h3>
+    <p>Una transacción agrupa varias operaciones: si falla cualquiera, se deshacen todas. Como un "ctrl+z" automático de la BD.</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">try</span>:
+    cur.execute(<span class="st">"INSERT INTO mallas.vitrojet ..."</span>)
+    cur.execute(<span class="st">"UPDATE mallas.grandes ..."</span>)
+    conn.commit()    <span class="cm"># ← confirma AMBAS operaciones juntas</span>
+<span class="kw">except</span> Exception:
+    conn.rollback()  <span class="cm"># ← si algo falla, deshace todo</span>
+    <span class="kw">raise</span></code></pre>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s9">
+    <h2><span class="num">09 · En tu Proyecto</span>Interfaces Gráficas con customtkinter</h2>
+
+    <p>customtkinter (<code>ctk</code>) es una librería para hacer ventanas en Python con diseño moderno. Tu app entera está construida con esto.</p>
+
+    <h3>El concepto de Widget</h3>
+    <p>Cada elemento visible es un <strong>widget</strong>: botón, campo de texto, etiqueta, tabla... Los widgets se anidan: el Frame contiene Buttons que contienen Labels.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> customtkinter <span class="kw">as</span> ctk
+
+app = ctk.CTk()                          <span class="cm"># ventana raíz</span>
+
+frame = ctk.CTkFrame(app)                <span class="cm"># contenedor</span>
+frame.pack(fill=<span class="st">"both"</span>, expand=<span class="nb">True</span>)
+
+label = ctk.CTkLabel(frame, text=<span class="st">"Hola!"</span>)
+label.pack(pady=<span class="nb">20</span>)
+
+entry = ctk.CTkEntry(frame, placeholder_text=<span class="st">"Escribe aquí..."</span>)
+entry.pack(pady=<span class="nb">10</span>)
+
+btn = ctk.CTkButton(frame, text=<span class="st">"Enviar"</span>,
+                    command=<span class="kw">lambda</span>: print(entry.get()))
+btn.pack(pady=<span class="nb">10</span>)
+
+app.mainloop()   <span class="cm"># ← inicia el loop de eventos, la ventana se queda abierta</span></code></pre>
+
+    <h3>pack vs grid — dos formas de posicionar</h3>
+    <div class="compare">
+      <div class="compare-box">
+        <div class="label teal">pack — apila elementos</div>
+        <code><pre style="background:none;border:none;padding:0;font-size:12.5px;color:#e8eaf0;">label.pack(side="top")
+btn.pack(side="bottom")
+# Simples, para layouts lineales</pre></code>
+      </div>
+      <div class="compare-box">
+        <div class="label amber" style="color:#f59e0b;">grid — cuadrícula exacta</div>
+        <code><pre style="background:none;border:none;padding:0;font-size:12.5px;color:#e8eaf0;">label.grid(row=0, col=0)
+btn.grid(row=1, col=1)
+# Para layouts precisos, tipo formulario</pre></code>
+      </div>
+    </div>
+
+    <div class="callout info">
+      <strong>Nunca mezcles pack y grid en el mismo contenedor.</strong> Python te da error. En tu proyecto usamos <code>grid</code> para las pestañas principales y <code>pack</code> para elementos simples dentro de frames.
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s10">
+    <h2><span class="num">10 · En tu Proyecto</span>Eventos y Callbacks — La UI Reacciona</h2>
+
+    <p>Un <strong>evento</strong> es algo que pasa: el usuario hace clic, escribe una tecla, mueve el mouse. Un <strong>callback</strong> es la función que se llama cuando ese evento ocurre.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="cm"># Callback de botón — se llama al hacer clic</span>
+btn = ctk.CTkButton(text=<span class="st">"Crear Arte"</span>, command=self._crear_arte)
+
+<span class="cm"># Bind — conecta cualquier evento a cualquier función</span>
+entry.bind(<span class="st">"&lt;Return&gt;"</span>,     self._on_enter)   <span class="cm"># ← tecla Enter</span>
+entry.bind(<span class="st">"&lt;KeyRelease&gt;"</span>,  self._on_key)     <span class="cm"># ← cada tecla suelta</span>
+entry.bind(<span class="st">"&lt;FocusOut&gt;"</span>,    self._on_blur)    <span class="cm"># ← sale del campo</span>
+tree.bind(<span class="st">"&lt;Double-1&gt;"</span>,     self._on_doble)   <span class="cm"># ← doble clic</span>
+tree.bind(<span class="st">"&lt;MouseWheel&gt;"</span>,   self._on_scroll)  <span class="cm"># ← rueda del mouse</span></code></pre>
+
+    <h3>El patrón de búsqueda con debounce</h3>
+    <p>En tu TabBD cuando escribes en el buscador no hace una query a la BD por cada letra — espera 300ms a que pares de escribir. Eso se llama <strong>debounce</strong>:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">def</span> <span class="fn">_on_key</span>(self, _):
+    <span class="cm"># Si ya había un timer corriendo, cancelarlo</span>
+    <span class="kw">if</span> self._timer:
+        self.after_cancel(self._timer)
+
+    <span class="cm"># Crear uno nuevo que dispara en 300ms</span>
+    self._timer = self.after(<span class="nb">300</span>, self._do_search)
+
+<span class="cm"># Resultado: solo hace la búsqueda cuando el usuario</span>
+<span class="cm"># para de escribir por 0.3 segundos</span></code></pre>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s11">
+    <h2><span class="num">11 · Conceptos Clave</span>Librería vs Framework vs API</h2>
+
+    <p>Estos tres términos se confunden mucho. La diferencia real:</p>
+
+    <table>
+      <thead><tr><th>Término</th><th>Qué es</th><th>Quién controla el flujo</th><th>Ejemplo en tu proyecto</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>Librería</strong></td>
+          <td>Colección de funciones/clases que TÚ llamas cuando quieres</td>
+          <td>Tú</td>
+          <td><code>pymssql</code>, <code>ezdxf</code>, <code>openpyxl</code></td>
+        </tr>
+        <tr>
+          <td><strong>Framework</strong></td>
+          <td>Esqueleto que define cómo se estructura tu app. Él te llama a ti.</td>
+          <td>El framework</td>
+          <td><code>customtkinter</code> (mainloop llama tus callbacks)</td>
+        </tr>
+        <tr>
+          <td><strong>API</strong></td>
+          <td>Interfaz para hablar con otro sistema o programa</td>
+          <td>Nadie — es el contrato entre dos sistemas</td>
+          <td>Azure SQL, SAP, SmartFactory, AutoCAD COM</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <h3>COM — API de Windows para hablar con Office/AutoCAD</h3>
+    <p>COM (Component Object Model) es la tecnología de Windows que permite que Python controle AutoCAD como si fuera un humano clickeando:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> win32com.client
+<span class="kw">import</span> pythoncom
+
+pythoncom.CoInitialize()   <span class="cm"># ← inicializar COM para este thread</span>
+
+acad = win32com.client.GetActiveObject(<span class="st">"AutoCAD.Application"</span>)
+<span class="cm"># → agarra AutoCAD que está abierto en Windows</span>
+
+doc = acad.Documents.Open(<span class="st">"C:/plano.dwg"</span>)
+<span class="cm"># → abre el archivo (igual que File > Open en AutoCAD)</span>
+
+doc.SaveAs(<span class="st">"C:/plano_nuevo.dwg"</span>)
+<span class="cm"># → guarda (igual que SaveAs en AutoCAD)</span>
+
+pythoncom.CoUninitialize()  <span class="cm"># ← limpiar cuando terminas</span></code></pre>
+
+    <h3>Variable de entorno — configurar sin hardcodear</h3>
+    <p>En vez de poner contraseñas o rutas fijas en el código (malo — si compartes el código, todos ven la contraseña), las guardas en <strong>variables de entorno</strong>:</p>
+    <pre><code class="lang-python"><span class="lang-tag">python</span><span class="kw">import</span> os
+
+<span class="cm"># Leer variable de entorno, con valor por defecto si no existe:</span>
+password = os.environ.get(<span class="st">"AGP_SP_PASS"</span>, <span class="st">""</span>)
+
+<span class="cm"># En Windows las configuras en:</span>
+<span class="cm"># Panel de Control > Sistema > Variables de Entorno</span>
+<span class="cm"># O en el .bat antes de lanzar la app:</span>
+<span class="cm"># set AGP_SP_PASS=miContraseña123</span></code></pre>
+
+    <h3>Términos del día a día que te van a decir en el trabajo</h3>
+    <table>
+      <thead><tr><th>Término</th><th>Traducción en palabras normales</th></tr></thead>
+      <tbody>
+        <tr><td><strong>Refactoring</strong></td><td>Reorganizar el código sin cambiar lo que hace — dejarlo más limpio</td></tr>
+        <tr><td><strong>Bug</strong></td><td>Error en el código que hace que funcione mal</td></tr>
+        <tr><td><strong>Deploy</strong></td><td>Subir el código a producción (al servidor real)</td></tr>
+        <tr><td><strong>Hardcodear</strong></td><td>Poner un valor fijo en el código en vez de leerlo de config</td></tr>
+        <tr><td><strong>Callback</strong></td><td>Función que le pasas a otra función para que la llame después</td></tr>
+        <tr><td><strong>Asíncrono</strong></td><td>Cosa que corre en paralelo sin bloquear lo demás</td></tr>
+        <tr><td><strong>Schema</strong></td><td>Estructura de una tabla BD (qué columnas tiene, qué tipo)</td></tr>
+        <tr><td><strong>ORM</strong></td><td>Librería que convierte tablas BD en clases Python automáticamente</td></tr>
+        <tr><td><strong>Endpoint</strong></td><td>Una URL de una API que hace algo específico</td></tr>
+        <tr><td><strong>Singleton</strong></td><td>Clase que solo puede tener UN objeto — útil para conexiones</td></tr>
+        <tr><td><strong>Daemon thread</strong></td><td>Thread que se muere solo cuando se cierra el programa principal</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s12">
+    <h2><span class="num">12 · Conceptos Clave</span>Git — Control de Versiones</h2>
+
+    <p>Git es como un historial de guardados con nombres. Nunca más vas a perder código por accidente, y puedes trabajar con otros sin pisarse.</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">bash</span><span class="cm"># Los comandos que usas el 90% del tiempo:</span>
+
+git status                  <span class="cm"># ¿qué cambié?</span>
+git diff                    <span class="cm"># ver exactamente qué líneas cambiaron</span>
+
+git add archivo.py          <span class="cm"># marcar archivo para guardar</span>
+git add .                   <span class="cm"># marcar TODOS los cambios</span>
+
+git commit -m "arreglo bug del SaveAs"  <span class="cm"># guardar con mensaje</span>
+
+git log --oneline           <span class="cm"># ver historial de commits</span>
+git diff HEAD~1             <span class="cm"># qué cambió desde el commit anterior</span>
+
+git checkout -- archivo.py  <span class="cm"># deshacer cambios en un archivo</span>
+git stash                   <span class="cm"># guardar cambios temporalmente</span></code></pre>
+
+    <h3>El flujo de trabajo</h3>
+    <pre><code class="lang-python"><span class="lang-tag">bash</span><span class="cm"># 1. Crear una rama para el cambio nuevo (no tocar main)</span>
+git checkout -b fix/error-guardado-arte
+
+<span class="cm"># 2. Hacer tus cambios, probar</span>
+<span class="cm"># 3. Guardar</span>
+git add .
+git commit -m "no cancelar BD cuando falla SaveAs"
+
+<span class="cm"># 4. Volver a main y unir tu rama</span>
+git checkout main
+git merge fix/error-guardado-arte</code></pre>
+
+    <div class="callout tip">
+      <strong>Regla de commits:</strong> Commits pequeños y frecuentes > un commit gigante con todo. El mensaje debe decir QUÉ y POR QUÉ, no cómo (el cómo ya está en el código).
+    </div>
+  </section>
+
+  <hr>
+
+  <!-- ══════════════════════════════════════════════ -->
+  <section id="s13">
+    <h2><span class="num">13 · Mentalidad</span>Cómo Pensar Como Dev</h2>
+
+    <h3>Divide y vencerás</h3>
+    <p>Cuando tienes un problema grande, nunca lo atacas todo de un golpe. Lo partes en pedazos hasta que cada pedazo sea simple:</p>
+
+    <pre><code class="lang-python"><span class="lang-tag">texto</span>Tarea: "Crear arte automáticamente"
+
+↓ Divide:
+├── Abrir AutoCAD y el DWG
+├── Extraer solo los layers que necesito
+├── Llenar el cajetín con los datos
+├── Guardar el archivo con el nombre correcto
+└── Registrar el vitro/malla en la BD
+
+↓ Divide más "Guardar con nombre correcto":
+├── Leer malla y pieza del formulario
+├── Limpiar caracteres inválidos (/ \ : etc)
+├── Construir la ruta completa
+└── Llamar doc.SaveAs(ruta)</code></pre>
+
+    <h3>Leer errores — el superpoder más importante</h3>
+    <p>El 80% de aprender a programar es aprender a leer los mensajes de error. No son enemigos — te están diciendo exactamente qué salió mal:</p>
+    <pre><code class="lang-python"><span class="lang-tag">traceback</span>Traceback (most recent call last):
+  File "agp_app.py", line 789, in _t_todo
+    _anular_bd(valores, self._log_fn)          ← línea donde explotó
+  File "agp_app.py", line 415, in _anular_bd
+    cur.execute(sql, params)                   ← vino de aquí
+pymssql.OperationalError: (40613, "Database not available")
+                           ^^^                  ^^^
+                           código de error       mensaje legible</code></pre>
+
+    <p>Lee <strong>de abajo hacia arriba</strong>. La última línea es el error real. Las de arriba son el camino que siguió el código hasta llegar ahí.</p>
+
+    <h3>El ciclo del dev</h3>
+    <pre><code class="lang-python"><span class="lang-tag">texto</span>1. Entender qué debe hacer (antes de escribir UNA línea)
+2. Escribir el código más simple posible que funcione
+3. Probarlo — encontrar qué falla
+4. Arreglarlo
+5. Volver al 3 hasta que funcione
+6. Limpiar el código (refactoring)
+7. Documentar si algo es no obvio</code></pre>
+
+    <h3>Señales de que vas por buen camino</h3>
+    <p>
+      <span class="pill amber">✓</span> Si borras tu código y lo reescribes en la mitad de líneas — vas mejorando.<br>
+      <span class="pill teal">✓</span> Si lees código de hace 3 meses y lo entiendes — vas mejorando.<br>
+      <span class="pill green">✓</span> Si cuando algo falla ya sabes en qué zona buscar — vas mejorando.<br>
+      <span class="pill purple">✓</span> Si puedes explicarle tu código a alguien más — lo entiendes de verdad.
+    </p>
+
+    <div class="callout tip">
+      <strong>El secreto que nadie dice:</strong> Los buenos devs no memorizan todo. Saben cómo buscar, cómo leer documentación, y cómo hacer las preguntas correctas. Google y la documentación oficial son herramientas de trabajo, no trampa.
+    </div>
+
+    <hr>
+
+    <p style="color: var(--txt-mid); font-size: 14px; margin-top: 32px;">
+      Hecho con base en el proyecto AGP Glass Suite — todo lo que usamos está explicado aquí con ejemplos reales del código que ya escribiste. ¿Quieres profundizar en algo? Pregunta.
+    </p>
+  </section>
+
+</main>
+</div>
+
+<script>
+  // Resaltar el link activo en el nav según scroll
+  const sections = document.querySelectorAll("section[id]");
+  const links    = document.querySelectorAll("nav a");
+  const obs = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        links.forEach(a => a.classList.remove("active"));
+        const link = document.querySelector(`nav a[href="#${e.target.id}"]`);
+        if (link) link.classList.add("active");
+      }
+    });
+  }, { rootMargin: "-20% 0px -70% 0px" });
+  sections.forEach(s => obs.observe(s));
+</script>
+</body>
+</html>

@@ -586,6 +586,21 @@ def dialogo_separar(parent_win=None):
                  highlightcolor=C["accent"], bd=4).pack(side="left")
         return var
 
+    def _dropdown(lbl, opciones, default=""):
+        f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=24, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=8)
+        var = tk.StringVar(value=default or opciones[0])
+        opt = tk.OptionMenu(f, var, *opciones)
+        opt.config(bg=C["entry"], fg=C["text"], activebackground="#3d4f7c",
+                   activeforeground=C["text"], relief="flat", bd=0,
+                   font=("Segoe UI", 10), width=10, highlightthickness=1,
+                   highlightbackground="#2E3250")
+        opt["menu"].config(bg=C["entry"], fg=C["text"],
+                           activebackground="#3d4f7c", font=("Segoe UI", 10))
+        opt.pack(side="left")
+        return var
+
     def _spin(lbl, default=1):
         f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
         tk.Label(f, text=lbl, width=24, anchor="e",
@@ -603,13 +618,12 @@ def dialogo_separar(parent_win=None):
     np_ = _spin("Mallas pequenas  (numero)", 0)
 
     _sec("DATOS DEL VEHICULO")
-    v_veh  = _row("Vehiculo",          req=True)
+    v_veh  = _row("Nombre vehículo",    req=True)
     v_cod  = _row("Cod. vehiculo",     req=True)
-    v_ver  = _row("Version / Ano",     req=True)
+    v_ver  = _row("Versión",           req=True)
     v_piez = _row("Pieza",             req=True)
     v_comp = _row("Cod. completo veh.")
-    v_bn   = _row("BNERIG",            default="BN")
-    v_tipo = _row("Tipo malla",        default="S")
+    v_bn   = _dropdown("B/N (BN o BNI)", ["BN", "BNI"], default="BN")
 
     _sec("ARCHIVO")
     ruta_var = tk.StringVar()
@@ -639,19 +653,46 @@ def dialogo_separar(parent_win=None):
     plbl_titulo = tk.Label(pf, text="", font=("Segoe UI", 11, "bold"),
                            fg=C["green"], bg=C["panel"])
     plbl_titulo.pack(anchor="w")
-    plbl = tk.Label(pf, text="", font=("Segoe UI", 13, "bold"),
-                    fg=C["text"], bg=C["panel"], wraplength=440, justify="left")
-    plbl.pack(anchor="w", pady=(4, 0))
+    # Contenedor para filas de códigos copiables (se llena en _hacer_confirmar)
+    pf_codigos = tk.Frame(pf, bg=C["panel"])
+    pf_codigos.pack(anchor="w", pady=(4, 0))
     plbl_sub = tk.Label(pf, text="", font=("Segoe UI", 9),
                         fg=C["muted"], bg=C["panel"])
     plbl_sub.pack(anchor="w")
+
+    def _limpiar_codigos():
+        for w in pf_codigos.winfo_children():
+            w.destroy()
+
+    def _agregar_fila_codigo(tipo_lbl, codigos):
+        """Muestra una fila: 'Vitro:  T-0042  [📋]  T-0043  [📋]'"""
+        fila = tk.Frame(pf_codigos, bg=C["panel"])
+        fila.pack(anchor="w", pady=1)
+        tk.Label(fila, text=f"{tipo_lbl}:", width=10, anchor="e",
+                 font=("Segoe UI", 10, "bold"), fg=C["muted"], bg=C["panel"]
+                 ).pack(side="left", padx=(0, 8))
+        for cod in codigos:
+            cod_s = str(cod)
+            tk.Label(fila, text=cod_s,
+                     font=("Segoe UI", 13, "bold"), fg=C["text"], bg=C["panel"]
+                     ).pack(side="left", padx=(0, 2))
+            def _copiar(c=cod_s):
+                win.clipboard_clear()
+                win.clipboard_append(c)
+                win.update()
+            btn_c = tk.Button(fila, text="📋", command=_copiar,
+                              bg=C["panel"], fg=C["muted"], relief="flat", bd=0,
+                              font=("Segoe UI", 9), cursor="hand2", padx=2)
+            btn_c.bind("<Enter>", lambda e, b=btn_c: b.configure(fg=C["accent"]))
+            btn_c.bind("<Leave>", lambda e, b=btn_c: b.configure(fg=C["muted"]))
+            btn_c.pack(side="left", padx=(0, 12))
 
     btn_confirmar_ref = [None]
 
     def _hacer_confirmar():
         faltantes = []
-        for var, nombre in [(v_veh, "Vehiculo"), (v_cod, "Cod. vehiculo"),
-                             (v_ver, "Version"), (v_piez, "Pieza"),
+        for var, nombre in [(v_veh, "Nombre vehículo"), (v_cod, "Cod. vehiculo"),
+                             (v_ver, "Versión"), (v_piez, "Pieza"),
                              (ruta_var, "Ruta archivo"), (v_resp, "Nombre responsable")]:
             if not var.get().strip():
                 faltantes.append(nombre)
@@ -665,7 +706,7 @@ def dialogo_separar(parent_win=None):
             return
 
         plbl_titulo.configure(text="Guardando...", fg=C["muted"])
-        plbl.configure(text="")
+        _limpiar_codigos()
         plbl_sub.configure(text="")
         win.update()
         try:
@@ -678,23 +719,22 @@ def dialogo_separar(parent_win=None):
                 cod_vehiculo = v_cod.get().strip(),
                 cod_completo = v_comp.get().strip() or None,
                 bnerig       = v_bn.get().strip() or "BN",
-                tipo         = v_tipo.get().strip() or "S",
+                tipo         = "S",
                 ruta_archivo = ruta_var.get().strip(),
                 responsable  = v_resp.get().strip(),
             )
             resultado[0] = prop_real
 
-            # Construir texto del resultado
-            lineas = []
+            # Mostrar códigos asignados con botones copiar
+            _limpiar_codigos()
             if prop_real["vitros"]:
-                lineas.append("Vitro:     " + "   ".join(prop_real["vitros"]))
+                _agregar_fila_codigo("Vitro", prop_real["vitros"])
             if prop_real["grandes"]:
-                lineas.append("Malla G:   " + "   ".join(prop_real["grandes"]))
+                _agregar_fila_codigo("Malla G", prop_real["grandes"])
             if prop_real["pequenas"]:
-                lineas.append("Malla P:   " + "   ".join(str(c) for c in prop_real["pequenas"]))
+                _agregar_fila_codigo("Malla P", [str(c) for c in prop_real["pequenas"]])
 
             plbl_titulo.configure(text="✔  Asignacion guardada en BD", fg=C["green"])
-            plbl.configure(text="\n".join(lineas), fg=C["text"])
             plbl_sub.configure(
                 text=f"Vehiculo: {v_veh.get().strip()}  |  Version: {v_ver.get().strip()}  |  "
                      f"Responsable: {v_resp.get().strip()}",
@@ -704,8 +744,8 @@ def dialogo_separar(parent_win=None):
             if btn_confirmar_ref[0]:
                 btn_confirmar_ref[0].configure(state="disabled", bg="#1A1C2A")
         except Exception as e:
-            plbl_titulo.configure(text="Error al guardar", fg=C["red"])
-            plbl.configure(text=str(e), fg=C["red"])
+            _limpiar_codigos()
+            plbl_titulo.configure(text=f"Error al guardar: {e}", fg=C["red"])
             plbl_sub.configure(text="")
 
     def cancel():

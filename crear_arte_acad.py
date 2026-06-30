@@ -316,7 +316,7 @@ def dialogo_cajetin(nombre_plano="", ruta_salida=""):
     SECCIONES = [
         ("DATOS DEL PLANO", [
             ("DIBUJO",    "Dibujo",        None),
-            ("VEHICULO",  "Vehículo",       None),
+            ("VEHICULO",  "Nombre Vehículo", None),
             ("MODELO",    "Modelo / Año",   "auto"),
             ("COD PLANO", "Código de plano",None),
             ("NAGS",      "NAGS",           "auto"),

@@ -101,7 +101,7 @@
  [],
  False,
  False,
- 1782330494,
+ 1782477068,
  [('runw.exe',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\PyInstaller\\bootloader\\Windows-64bit-intel\\runw.exe',
