@@ -64,6 +64,8 @@ import re, math, shutil, json, datetime
 import tkinter as _tk_root
 from tkinter import filedialog, messagebox
 
+_SENTINEL = object()  # valor centinela para campos virtuales no presentes
+
 def _msgbox_topmost(tipo, titulo, mensaje):
     """Muestra un messagebox siempre al frente de todas las ventanas."""
     import tkinter as _tk
@@ -1155,10 +1157,14 @@ class TabGestion(ctk.CTkFrame):
     ]
     QUERIES = {
         "vitrojet": (
-            "SELECT TOP(?) vitro,codigo_malla,tipo_malla,bnerig,vehiculo,version,ruta,responsable,estado,modificado_por,modificado_en "
-            "FROM mallas.vitrojet {where} ORDER BY TRY_CAST(SUBSTRING(vitro,3,50) AS INT) DESC",
-            ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Ruta","Responsable","Estado","Modificado por","Modificado en"],
-            ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","ruta","responsable","estado","modificado_por","modificado_en"],
+            "SELECT TOP(?) v.vitro,v.codigo_malla,v.tipo_malla,v.bnerig,v.vehiculo,v.version,"
+            "COALESCE(g.pieza,p.pieza) AS pieza,v.ruta,v.responsable,v.estado,v.modificado_por,v.modificado_en "
+            "FROM mallas.vitrojet v "
+            "LEFT JOIN mallas.grandes g ON v.codigo_malla=g.codigo "
+            "LEFT JOIN mallas.pequenas p ON v.codigo_malla=CAST(p.codigo AS NVARCHAR) "
+            "{where} ORDER BY TRY_CAST(SUBSTRING(v.vitro,3,50) AS INT) DESC",
+            ["Vitro","Malla","Tipo","B/N","Vehículo","Versión","Pieza","Ruta","Responsable","Estado","Modificado por","Modificado en"],
+            ["vitro","codigo_malla","tipo_malla","bnerig","vehiculo","version","pieza","ruta","responsable","estado","modificado_por","modificado_en"],
             "vitro",
         ),
         "grandes": (
@@ -1191,7 +1197,7 @@ class TabGestion(ctk.CTkFrame):
         ),
     }
     WHERE = {
-        "vitrojet":   "WHERE vitro LIKE ? OR vehiculo LIKE ? OR codigo_malla LIKE ?",
+        "vitrojet":   "WHERE v.vitro LIKE ? OR v.vehiculo LIKE ? OR v.codigo_malla LIKE ?",
         "grandes":    "WHERE descripcion LIKE ? OR codigo LIKE ? OR cod_veh LIKE ?",
         "pequenas":   "WHERE descripcion LIKE ? OR CAST(codigo AS NVARCHAR) LIKE ? OR cod_veh LIKE ?",
         "vinilos":    "WHERE vehiculo LIKE ? OR herramental LIKE ? OR pieza LIKE ?",
@@ -1203,6 +1209,7 @@ class TabGestion(ctk.CTkFrame):
             ("B/N",         "bnerig"),
             ("Vehículo",    "vehiculo"),
             ("Versión",     "version"),
+            ("Pieza",       "_pieza_malla"),   # columna virtual → cascade a malla linked
             ("Ruta",        "ruta"),
             ("Responsable", "responsable"),
         ],
@@ -1457,7 +1464,7 @@ class TabGestion(ctk.CTkFrame):
         win = _tk.Toplevel(root_tk)
         win.title(f"Editar — {pk_val}")
         win.configure(bg="#1e1e2e")
-        win.resizable(False, False)
+        win.resizable(False, True)
         win.attributes("-topmost", True)
         if root_tk:
             win.grab_set()
@@ -1483,7 +1490,8 @@ class TabGestion(ctk.CTkFrame):
             _tk.Label(row_f, text=lbl_txt, width=14, anchor="e",
                       font=("Segoe UI", 9), fg="#94a3b8", bg="#1e1e2e"
                       ).pack(side="left", padx=(0,10))
-            val = fila.get(campo, "") or ""
+            # _pieza_malla es campo virtual → leer de columna "pieza" del JOIN
+            val = fila.get("pieza" if campo == "_pieza_malla" else campo, "") or ""
             _DROPDOWNS = {
                 "caso":   (["Caso 1", "Caso 2"],  "Caso 1"),
                 "bnerig": (["BN", "BNI"],          "BN"),
@@ -1537,26 +1545,32 @@ class TabGestion(ctk.CTkFrame):
         msg_lbl.pack(anchor="w", pady=(0,8))
 
         def _guardar():
-            nuevos = {campo: (ent.get().strip() or None) for campo, ent in entries_edit.items()}
-            if not nuevos: return
+            nuevos_raw = {campo: (ent.get().strip() or None) for campo, ent in entries_edit.items()}
+            if not nuevos_raw: return
+            # Separar campos virtuales de los reales
+            pieza_virtual = nuevos_raw.pop("_pieza_malla", _SENTINEL)
+            nuevos = nuevos_raw
             usuario_nombre = self._usuario.get("nombre") or self._usuario.get("usuario") or "desconocido"
             try:
                 cn  = db_connect()
                 cur = cn.cursor()
 
-                # Leer valores actuales para trazabilidad
-                campos_sel = ", ".join(nuevos.keys())
-                cur.execute(f"SELECT {campos_sel} FROM {tabla} WHERE {pk_col}=?", (pk_val,))
-                row_ant = cur.fetchone()
-                valores_ant = {}
-                if row_ant:
-                    for i, campo in enumerate(nuevos.keys()):
-                        valores_ant[campo] = str(row_ant[i]) if row_ant[i] is not None else None
+                # Leer valores actuales para trazabilidad (solo columnas reales de la tabla)
+                if nuevos:
+                    campos_sel = ", ".join(nuevos.keys())
+                    cur.execute(f"SELECT {campos_sel} FROM {tabla} WHERE {pk_col}=?", (pk_val,))
+                    row_ant = cur.fetchone()
+                    valores_ant = {}
+                    if row_ant:
+                        for i, campo in enumerate(nuevos.keys()):
+                            valores_ant[campo] = str(row_ant[i]) if row_ant[i] is not None else None
 
-                # UPDATE con modificado_por y modificado_en
-                sets   = [f"{c}=?" for c in nuevos] + ["modificado_por=?", "modificado_en=SYSDATETIME()"]
-                params = list(nuevos.values()) + [usuario_nombre, pk_val]
-                cur.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE {pk_col}=?", params)
+                    # UPDATE con modificado_por y modificado_en
+                    sets   = [f"{c}=?" for c in nuevos] + ["modificado_por=?", "modificado_en=SYSDATETIME()"]
+                    params = list(nuevos.values()) + [usuario_nombre, pk_val]
+                    cur.execute(f"UPDATE {tabla} SET {', '.join(sets)} WHERE {pk_col}=?", params)
+                else:
+                    valores_ant = {}
 
                 # INSERT en trazabilidad por cada campo que cambió
                 for campo, val_nuevo in nuevos.items():
@@ -1569,6 +1583,56 @@ class TabGestion(ctk.CTkFrame):
                             "VALUES (?,?,?,?,?,?,?)",
                             (tabla, pk_col, str(pk_val), campo, val_ant, val_nuevo_s, usuario_nombre)
                         )
+
+                # ── Cascade pieza_virtual: actualiza pieza en malla linked ────
+                if pieza_virtual is not _SENTINEL and "vitrojet" in tabla:
+                    try:
+                        cur.execute(
+                            "SELECT codigo_malla FROM mallas.vitrojet WHERE vitro=?",
+                            (pk_val,))
+                        r_cm2 = cur.fetchone()
+                        if r_cm2 and r_cm2[0]:
+                            cod_m2 = str(r_cm2[0]).strip()
+                            cur.execute(
+                                "UPDATE mallas.grandes SET pieza=? WHERE CAST(codigo AS NVARCHAR)=?",
+                                (pieza_virtual, cod_m2))
+                            if cur.rowcount == 0:
+                                cur.execute(
+                                    "UPDATE mallas.pequenas SET pieza=? WHERE CAST(codigo AS NVARCHAR)=?",
+                                    (pieza_virtual, cod_m2))
+                    except Exception:
+                        pass
+
+                # ── Cascade ruta: sincroniza vitro ↔ malla vinculada ─────
+                try:
+                    if "vitrojet" in tabla and "ruta" in nuevos and nuevos["ruta"]:
+                        cur.execute(
+                            "SELECT codigo_malla FROM mallas.vitrojet WHERE vitro=?",
+                            (pk_val,))
+                        r_cm = cur.fetchone()
+                        if r_cm and r_cm[0]:
+                            cod_m = str(r_cm[0]).strip()
+                            cur.execute(
+                                "UPDATE mallas.grandes SET ruta_dwg=? "
+                                "WHERE CAST(codigo AS NVARCHAR)=?",
+                                (nuevos["ruta"], cod_m))
+                            if cur.rowcount == 0:
+                                cur.execute(
+                                    "UPDATE mallas.pequenas SET ruta_dwg=? "
+                                    "WHERE CAST(codigo AS NVARCHAR)=?",
+                                    (nuevos["ruta"], cod_m))
+                    elif ("grandes" in tabla or "pequenas" in tabla) \
+                            and "ruta_dwg" in nuevos and nuevos["ruta_dwg"]:
+                        cur.execute(
+                            "SELECT vitro FROM mallas.vitrojet WHERE codigo_malla=?",
+                            (str(pk_val),))
+                        r_vt = cur.fetchone()
+                        if r_vt and r_vt[0]:
+                            cur.execute(
+                                "UPDATE mallas.vitrojet SET ruta=? WHERE vitro=?",
+                                (nuevos["ruta_dwg"], r_vt[0]))
+                except Exception:
+                    pass  # cascade es best-effort, no falla el guardado principal
 
                 cn.commit()
                 cn.close()
@@ -1633,11 +1697,14 @@ class TabGestion(ctk.CTkFrame):
         btn_anular.pack(side="right", ipadx=6, ipady=6)
 
         win.update_idletasks()
-        # Centrar sobre la ventana principal
+        # Centrar y limitar altura a pantalla
         try:
-            rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - win.winfo_width()  // 2
-            ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - win.winfo_height() // 2
-            win.geometry(f"+{rx}+{ry}")
+            sh = win.winfo_screenheight()
+            w  = win.winfo_reqwidth()
+            h  = min(win.winfo_reqheight(), sh - 80)
+            rx = root_tk.winfo_rootx() + root_tk.winfo_width()  // 2 - w // 2
+            ry = root_tk.winfo_rooty() + root_tk.winfo_height() // 2 - h // 2
+            win.geometry(f"{w}x{h}+{rx}+{ry}")
         except Exception:
             pass
 
@@ -2086,7 +2153,6 @@ class TabScanner(ctk.CTkFrame):
         col_izq = ctk.CTkFrame(self._zona, fg_color="transparent")
         col_izq.grid(row=0, column=0, sticky="nsew", padx=(0, 10))
         col_izq.columnconfigure(0, weight=1)
-        col_izq.rowconfigure(2, weight=1)
 
         # · Fila ORDEN | ZFER  (header bar unificada)
         hbar = ctk.CTkFrame(col_izq, fg_color="#161b22", corner_radius=16,
@@ -2101,9 +2167,9 @@ class TabScanner(ctk.CTkFrame):
             blk.columnconfigure(0, weight=1)
             ctk.CTkLabel(blk, text=etiqueta, font=FONT(9, "bold"),
                          text_color=color_txt).pack(anchor="w", padx=12, pady=(8, 0))
-            lbl = ctk.CTkLabel(blk, text="—", font=FONT(26, "bold"),
+            lbl = ctk.CTkLabel(blk, text="—", font=FONT(32, "bold"),
                                text_color="#e6edf3")
-            lbl.pack(anchor="w", padx=12, pady=(0, 8))
+            lbl.pack(anchor="w", padx=14, pady=(0, 12))
             return lbl
 
         self._c_orden = _id_block(hbar, "ORDEN", "#0d1f33", "#58a6ff", 0)
@@ -2118,50 +2184,47 @@ class TabScanner(ctk.CTkFrame):
         veh_card.columnconfigure(1, weight=1)
 
         # Fila 0: logo + nombre vehículo
-        self._lbl_logo = ctk.CTkLabel(
-            veh_card, text="", font=FONT(12, "bold"),
-            text_color="#0d1117", fg_color="#1f6feb",
-            corner_radius=8, width=62, height=28,
-        )
-        self._lbl_logo.grid(row=0, column=0, padx=(12, 8), pady=(10, 0), sticky="w")
-
         veh_right = ctk.CTkFrame(veh_card, fg_color="transparent")
-        veh_right.grid(row=0, column=1, sticky="ew", padx=(0, 12), pady=(10, 0))
+        veh_right.grid(row=0, column=0, sticky="ew", padx=(14, 12), pady=(12, 0))
         veh_right.columnconfigure(0, weight=1)
         self._lbl_vehiculo = ctk.CTkLabel(
-            veh_right, text="—", font=FONT(16, "bold"),
+            veh_right, text="—", font=FONT(22, "bold"),
             text_color="#e6edf3", anchor="w",
         )
         self._lbl_vehiculo.grid(row=0, column=0, sticky="w")
-        self._lbl_version = ctk.CTkLabel(
-            veh_right, text="", font=FONT(13),
-            text_color="#8b949e", anchor="w",
-        )
-        self._lbl_version.grid(row=1, column=0, sticky="w")
 
-        # Fila 1: grid 4 celdas — Cliente | Lote | CódVeh | Tipo Pieza
+        self._lbl_logo = ctk.CTkLabel(
+            veh_card, text="", font=FONT(16, "bold"),
+            text_color="#0d1117", fg_color="#1f6feb",
+            corner_radius=10, width=90, height=38,
+        )
+        self._lbl_logo.grid(row=0, column=1, padx=(0, 14), pady=(12, 0), sticky="e")
+        # _lbl_version existe solo para el reset (texto vacío, no visible)
+        self._lbl_version = ctk.CTkLabel(veh_right, text="")
+
+        # Fila de celdas — 5 columnas uniformes: LOTE | VERSIÓN | CÓD.VEH. | TIPO PIEZA | TRAZABILIDAD
         info4 = ctk.CTkFrame(veh_card, fg_color="transparent")
-        info4.grid(row=1, column=0, columnspan=2, sticky="ew", padx=12, pady=(8, 10))
-        info4.columnconfigure((0, 1, 2, 3), weight=1)
+        info4.grid(row=1, column=0, columnspan=2, sticky="ew", padx=14, pady=(10, 14))
+        info4.columnconfigure((0, 1, 2, 3, 4), weight=1)
 
         def _info_cell(parent, titulo, col_n, color_val):
-            ctk.CTkLabel(parent, text=titulo, font=FONT(8, "bold"),
-                         text_color="#484f58").grid(row=0, column=col_n, sticky="w",
-                                                    padx=(0 if col_n == 0 else 8, 0))
-            lbl = ctk.CTkLabel(parent, text="—", font=FONT(14, "bold"),
+            px = (0 if col_n == 0 else 10, 0)
+            ctk.CTkLabel(parent, text=titulo, font=FONT(9, "bold"),
+                         text_color="#484f58").grid(row=0, column=col_n, sticky="w", padx=px)
+            lbl = ctk.CTkLabel(parent, text="—", font=FONT(18, "bold"),
                                text_color=color_val, anchor="w")
-            lbl.grid(row=1, column=col_n, sticky="w",
-                     padx=(0 if col_n == 0 else 8, 0))
+            lbl.grid(row=1, column=col_n, sticky="w", padx=px)
             return lbl
 
-        self._lbl_cliente  = _info_cell(info4, "CLIENTE",        0, "#8b949e")
-        self._lbl_lote     = _info_cell(info4, "LOTE",           1, "#e3b341")
-        self._lbl_sap_codveh = _info_cell(info4, "CÓD. VEH.",    2, "#79c0ff")
-        self._lbl_sap_tipo   = _info_cell(info4, "TIPO PIEZA",   3, "#d2a8ff")
+        self._lbl_lote         = _info_cell(info4, "LOTE",          0, "#e3b341")
+        self._lbl_version2     = _info_cell(info4, "VERSIÓN",        1, "#58a6ff")
+        self._lbl_sap_codveh   = _info_cell(info4, "CÓD. VEH.",      2, "#79c0ff")
+        self._lbl_sap_tipo     = _info_cell(info4, "TIPO PIEZA",     3, "#d2a8ff")
+        self._lbl_trazabilidad = _info_cell(info4, "TRAZABILIDAD",   4, "#ffa657")
 
         # · Box VITRO (card con borde izquierdo verde)
         wrap_v = ctk.CTkFrame(col_izq, fg_color="#3fb950", corner_radius=16)
-        wrap_v.grid(row=2, column=0, sticky="nsew")
+        wrap_v.grid(row=2, column=0, sticky="ew")
         wrap_v.columnconfigure(0, weight=1)
         wrap_v.rowconfigure(0, weight=1)
         box_v = ctk.CTkFrame(wrap_v, fg_color="#161b22", corner_radius=14)
@@ -2169,46 +2232,20 @@ class TabScanner(ctk.CTkFrame):
         box_v.columnconfigure(0, weight=1)
 
         vit_hdr = ctk.CTkFrame(box_v, fg_color="transparent")
-        vit_hdr.pack(fill="x", padx=14, pady=(12, 0))
+        vit_hdr.pack(fill="x", padx=16, pady=(14, 4))
         ctk.CTkFrame(vit_hdr, fg_color="#3fb950", width=6, height=6,
                      corner_radius=3).pack(side="left", padx=(0, 7))
-        ctk.CTkLabel(vit_hdr, text="VITRO", font=FONT(10, "bold"),
+        ctk.CTkLabel(vit_hdr, text="VITRO", font=FONT(13, "bold"),
                      text_color="#3fb950").pack(side="left")
 
         self._lbl_vitro2 = ctk.CTkLabel(
-            box_v, text="—", font=FONT(20, "bold"),
-            text_color="#e6edf3", wraplength=440, justify="left",
+            box_v, text="—", font=FONT(36, "bold"),
+            text_color="#e6edf3", wraplength=620, justify="left",
         )
-        self._lbl_vitro2.pack(anchor="w", padx=14, pady=(4, 0))
+        self._lbl_vitro2.pack(anchor="w", padx=16, pady=(4, 16))
 
-        self._lbl_vitro = ctk.CTkLabel(
-            box_v, text="", font=FONT(11),
-            text_color="#8b949e", wraplength=440, justify="left",
-        )
-        self._lbl_vitro.pack(anchor="w", padx=14, pady=(2, 8))
-
-        # Ruta vitro
-        ruta_card_v = ctk.CTkFrame(box_v, fg_color="#0d1117", corner_radius=8,
-                                    border_width=1, border_color="#238636")
-        ruta_card_v.pack(fill="x", padx=14, pady=(0, 14))
-        ruta_card_v.columnconfigure(0, weight=1)
-        ctk.CTkLabel(ruta_card_v, text="📁  RUTA DWG",
-                     font=FONT(9, "bold"), text_color="#3fb950"
-                     ).grid(row=0, column=0, columnspan=2, sticky="w",
-                            padx=10, pady=(8, 2))
-        self._lbl_vitro_ruta = ctk.CTkLabel(
-            ruta_card_v, text="—", font=MONO(11),
-            text_color="#8b949e", wraplength=400, justify="left",
-        )
-        self._lbl_vitro_ruta.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 8))
-        ctk.CTkButton(
-            ruta_card_v, text="📋", width=40, height=30,
-            font=FONT(13), corner_radius=7,
-            fg_color="#0d2218", hover_color="#238636",
-            text_color="#3fb950",
-            command=self._copiar_ruta_vitro,
-        ).grid(row=1, column=1, padx=(4, 8), pady=(0, 8))
         self._vitro_ruta_val = ""
+        self._lbl_vitro_ruta = ctk.CTkLabel(box_v, text="")  # oculto, solo datos
 
         # ── Columna derecha: MALLAS ───────────────────────────────────────
         wrap_m = ctk.CTkFrame(self._zona, fg_color="#8957e5", corner_radius=16)
@@ -2224,7 +2261,7 @@ class TabScanner(ctk.CTkFrame):
         mal_hdr.pack(fill="x", padx=18, pady=(16, 4))
         ctk.CTkFrame(mal_hdr, fg_color="#8957e5", width=6, height=6,
                      corner_radius=3).pack(side="left", padx=(0, 8))
-        ctk.CTkLabel(mal_hdr, text="MALLAS", font=FONT(10, "bold"),
+        ctk.CTkLabel(mal_hdr, text="MALLAS", font=FONT(13, "bold"),
                      text_color="#d2a8ff").pack(side="left")
         self._lbl_mallas_count = ctk.CTkLabel(
             mal_hdr, text="", font=FONT(9),
@@ -2265,54 +2302,6 @@ class TabScanner(ctk.CTkFrame):
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
 
-        # ── Historial ─────────────────────────────────────────────────────
-        card_hist = ctk.CTkFrame(self, fg_color="#0d1117", corner_radius=0,
-                                  border_width=0)
-        card_hist.grid(row=3, column=0, sticky="ew")
-
-        # Línea separadora sutil
-        ctk.CTkFrame(card_hist, fg_color="#21262d", height=1,
-                     corner_radius=0).pack(fill="x")
-
-        _style = _ttk.Style()
-        _style.configure("Hist.Treeview",
-                         background="#0d1117", foreground="#8b949e",
-                         fieldbackground="#0d1117", rowheight=22,
-                         font=("Segoe UI", 9))
-        _style.configure("Hist.Treeview.Heading",
-                         background="#161b22", foreground="#58a6ff",
-                         font=("Segoe UI", 8, "bold"), relief="flat")
-        _style.map("Hist.Treeview",
-                   background=[("selected", "#1f6feb")],
-                   foreground=[("selected", "white")])
-
-        frm_h = ctk.CTkFrame(card_hist, fg_color="transparent")
-        frm_h.pack(fill="x", padx=10, pady=6)
-        frm_h.grid_rowconfigure(0, weight=1)
-        frm_h.grid_columnconfigure(0, weight=1)
-        self._tree_hist = _ttk.Treeview(
-            frm_h, style="Hist.Treeview",
-            columns=("hora","orden","zfer","logo","vehiculo","lote","vitro","mallas"),
-            show="headings", height=3,
-        )
-        for col, w, lbl in [("hora",60,"Hora"),("orden",90,"Orden"),
-                             ("zfer",95,"ZFER"),("logo",70,"Logo"),
-                             ("vehiculo",190,"Vehículo"),("lote",110,"Lote"),
-                             ("vitro",200,"Vitro"),("mallas",280,"Mallas")]:
-            self._tree_hist.heading(col, text=lbl)
-            self._tree_hist.column(col, width=w, minwidth=40, stretch=False)
-        self._tree_hist.grid(row=0, column=0, sticky="nsew")
-        sb_h = _ttk.Scrollbar(frm_h, orient="vertical",
-                               command=self._tree_hist.yview)
-        sb_h.grid(row=0, column=1, sticky="ns")
-        sb_hx = _ttk.Scrollbar(frm_h, orient="horizontal",
-                                command=self._tree_hist.xview)
-        sb_hx.grid(row=1, column=0, sticky="ew")
-        self._tree_hist.configure(yscrollcommand=sb_h.set,
-                                   xscrollcommand=sb_hx.set)
-        _setup_tree_copy(self._tree_hist)
-        self._tree_hist.bind("<Double-1>", self._hist_click)
-
         self._zona.grid_remove()
 
     # ── Lógica ───────────────────────────────────────────────────────────────
@@ -2347,7 +2336,7 @@ class TabScanner(ctk.CTkFrame):
             cn2.close()
 
             _EXCLUIR = ("M", "G")
-            _EXCLUIR_DESC = ("MOLDE LLENO", "PLANTILLA")
+            _EXCLUIR_DESC = ("MOLDE LLENO", "PLANTILLA", "ANTENA")
             mallas, t1s, t2s = [], [], []
             for comp, t1, t2 in filas:
                 if comp and str(comp).strip():
@@ -2401,7 +2390,7 @@ class TabScanner(ctk.CTkFrame):
                     zfer_pad = zfer.zfill(18)
                     cur_s.execute(
                         "SELECT ATNAM, ATWRT FROM ODATA_ZFER_CLASS_001 "
-                        "WHERE MATERIAL IN (?, ?) AND ATNAM = 'Z_PIECE_TYPE'",
+                        "WHERE MATERIAL IN (?, ?) AND ATNAM IN ('Z_PIECE_TYPE','Z_TRAZABILITY')",
                         (zfer, zfer_pad))
                     for atnam, atwrt in cur_s.fetchall():
                         sap_info[atnam] = str(atwrt or "").strip()
@@ -2485,20 +2474,21 @@ class TabScanner(ctk.CTkFrame):
         self._lbl_version.configure(
             text=f"Versión: {version}" if version else "")
         self._lbl_lote.configure(text=lote)
-        self._lbl_cliente.configure(text=cliente)
+        self._lbl_version2.configure(text=version if version else "—")
 
         # Info SAP
-        tipo_raw = sap_info.get("Z_PIECE_TYPE", "")
-        tipo_txt = _PIEZAS_MAP.get(tipo_raw, tipo_raw) if tipo_raw else "—"
-        cod_veh  = cal.get("cod_veh", "—") or "—"
+        tipo_raw  = sap_info.get("Z_PIECE_TYPE", "")
+        tipo_txt  = tipo_raw if tipo_raw else "—"
+        traz_raw  = sap_info.get("Z_TRAZABILITY", "")
+        traz_txt  = traz_raw if traz_raw else "—"
+        cod_veh   = cal.get("cod_veh", "—") or "—"
         self._lbl_sap_codveh.configure(text=cod_veh)
         self._lbl_sap_tipo.configure(text=tipo_txt)
+        self._lbl_trazabilidad.configure(text=traz_txt)
         self._lbl_mallas_count.configure(text=str(len(mallas)) if mallas else "")
 
         # Vitro
         self._lbl_vitro2.configure(text=vitro2 or "—")
-        self._lbl_vitro.configure(
-            text=vitro1 if vitro1 and vitro1 != "—" else "")
         self._vitro_ruta_val = vitro_ruta or ""
         if ruta_err:
             self._lbl_vitro_ruta.configure(
@@ -2542,13 +2532,13 @@ class TabScanner(ctk.CTkFrame):
             mf.columnconfigure(1, weight=1)
             # Número badge
             num = _nums[i] if i < len(_nums) else str(i+1)
-            ctk.CTkLabel(mf, text=num, font=FONT(16, "bold"),
-                         text_color="#8957e5", width=32,
-                         ).grid(row=0, column=0, padx=(10, 6), pady=(10, 6), sticky="n")
+            ctk.CTkLabel(mf, text=num, font=FONT(22, "bold"),
+                         text_color="#8957e5", width=40,
+                         ).grid(row=0, column=0, padx=(12, 8), pady=(12, 8), sticky="n")
             # Nombre malla
-            ctk.CTkLabel(mf, text=m, font=FONT(13, "bold"),
+            ctk.CTkLabel(mf, text=m, font=FONT(17, "bold"),
                          text_color="#e6edf3", anchor="w",
-                         ).grid(row=0, column=1, sticky="w", pady=(10, 6), padx=(0, 10))
+                         ).grid(row=0, column=1, sticky="w", pady=(12, 8), padx=(0, 12))
             ruta_m = malla_rutas.get(m)
             misma = _misma_dir(ruta_m)
             if misma:
@@ -2590,14 +2580,6 @@ class TabScanner(ctk.CTkFrame):
             self._alerta_lbl.configure(text=f"⚠  {self._alerta_txt}")
             self._alerta_frame.grid()
 
-        hora = time.strftime("%H:%M:%S")
-        mallas_str = " | ".join(mallas[:3]) + (" ..." if len(mallas) > 3 else "")
-        self._tree_hist.insert("", 0, values=(
-            hora, orden, zfer, logo, vehiculo[:25],
-            lote, (vitro2 or "")[:30], mallas_str[:50]))
-        for h in self._tree_hist.get_children()[50:]:
-            self._tree_hist.delete(h)
-
         self._zona.grid()
         self._entry.delete(0, "end")
         self._entry.focus_set()
@@ -2621,29 +2603,19 @@ class TabScanner(ctk.CTkFrame):
         self._c_orden.configure(text="—")
         self._c_zfer.configure(text="—")
         self._lbl_vitro2.configure(text="No encontrado")
-        self._lbl_vitro.configure(text="")
         self._vitro_ruta_val = ""
-        self._lbl_vitro_ruta.configure(text="—", text_color=PAL["txt_dim"])
         self._lbl_logo.configure(text=" ", fg_color=PAL["border"])
         self._lbl_vehiculo.configure(text="—")
         self._lbl_version.configure(text="")
         self._lbl_lote.configure(text="—")
-        self._lbl_cliente.configure(text="—")
+        self._lbl_version2.configure(text="—")
         self._lbl_sap_codveh.configure(text="—")
         self._lbl_sap_tipo.configure(text="—")
+        self._lbl_trazabilidad.configure(text="—")
         self._lbl_mallas_count.configure(text="")
         self._alerta_frame.grid_remove()
         self._alerta_txt = ""
         self._zona.grid()
-
-    def _hist_click(self, _):
-        sel = self._tree_hist.selection()
-        if not sel: return
-        vals = self._tree_hist.item(sel[0], "values")
-        if vals:
-            self._entry.delete(0, "end")
-            self._entry.insert(0, vals[1])
-            self._buscar()
 
 
 # ══════════════════════════════════════════════════════════════════════════════

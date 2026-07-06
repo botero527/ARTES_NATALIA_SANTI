@@ -99,6 +99,14 @@ def reservar(n_vitros=0, n_grandes=0, n_pequenas=0):
                                    lambda n: n,
                                    "1=1")
 
+        # Vincular vitros a sus mallas inmediatamente (visible incluso si cancela)
+        all_mallas = grandes + [str(p) for p in pequenas]
+        for v, m in zip(vitros, all_mallas):
+            tm = "G" if str(m).startswith("A-") else "P"
+            cur.execute(
+                "UPDATE mallas.vitrojet SET codigo_malla=?, tipo_malla=? WHERE vitro=?",
+                (m, tm, v))
+
         cn.commit()
         return {
             "vitros":    vitros,
@@ -536,249 +544,318 @@ _do_cancelar  = cancelar
 
 def dialogo_separar(parent_win=None):
     """
-    Separacion manual completa.
-    - Reserva al confirmar (no antes) -> si cancela, nada queda en BD
+    Separacion manual — flujo en 3 pasos:
+      1. Elegir cantidades → Reservar (PENDIENTE inmediato en BD)
+      2. Ver numeros reservados
+      3. Llenar datos opcionales → Confirmar (ASIGNADO)
+    Si cierra sin confirmar → CANCELADO automatico (libera numeros).
     """
     import tkinter as tk
     from tkinter import messagebox, filedialog
 
     C = {
-        "bg": "#12131A", "panel": "#1C1E2B", "sep": "#2A2D45",
-        "accent": "#FF9500", "accent2": "#CC7700",
-        "text": "#E8EAFF", "muted": "#6B7099", "entry": "#1A1C2A",
-        "green": "#3ECF8E", "red": "#FF5757", "req": "#FF6B6B",
+        "bg": "#0d1117", "panel": "#161b22", "sep": "#21262d",
+        "accent": "#f78166", "accent2": "#ff7b72",
+        "text": "#e6edf3", "muted": "#8b949e", "dim": "#484f58",
+        "entry": "#161b22", "border": "#30363d",
+        "green": "#3fb950", "green2": "#238636",
+        "blue": "#58a6ff", "blue2": "#1f6feb",
+        "red": "#f85149", "orange": "#e3b341",
     }
 
-    resultado = [None]
+    resultado      = [None]
+    reserva_actual = [None]   # dict con vitros/grandes/pequenas mientras está PENDIENTE
+    confirmado     = [False]
+
     win = tk.Toplevel(parent_win) if parent_win else tk.Tk()
     if parent_win:
         win.grab_set()
 
     win.title("Separar vitro / malla")
     win.configure(bg=C["bg"])
-    win.resizable(False, False)
+    win.resizable(False, True)
     win.attributes("-topmost", True)
 
-    tk.Frame(win, bg=C["accent"], height=6).pack(fill="x")
-    hf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); hf.pack(fill="x")
-    tk.Label(hf, text="Separar Vitro / Malla",
-             font=("Segoe UI", 16, "bold"), fg=C["accent"], bg=C["bg"]).pack(anchor="w")
-    tk.Label(hf, text="Asignacion manual  |  * = obligatorio  |  guarda en BD al confirmar",
-             font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(anchor="w")
+    # ── Header ────────────────────────────────────────────────────────────────
+    tk.Frame(win, bg=C["blue2"], height=4).pack(fill="x")
+    hf = tk.Frame(win, bg=C["bg"], pady=12, padx=24); hf.pack(fill="x")
+    tk.Label(hf, text="🔒  Separar Vitro / Malla",
+             font=("Segoe UI", 15, "bold"), fg=C["blue"], bg=C["bg"]).pack(anchor="w")
+    lbl_sub_hdr = tk.Label(
+        hf,
+        text="Los números quedan PENDIENTE en BD al reservar — nadie más los puede tomar.",
+        font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"])
+    lbl_sub_hdr.pack(anchor="w")
 
-    body = tk.Frame(win, bg=C["bg"], padx=24); body.pack(fill="x")
+    def _sec(parent, txt, color=None):
+        f = tk.Frame(parent, bg=C["bg"]); f.pack(fill="x", padx=24, pady=(10, 0))
+        tk.Label(f, text=txt, font=("Segoe UI", 8, "bold"),
+                 fg=color or C["muted"], bg=C["bg"]).pack(side="left")
+        tk.Frame(parent, bg=C["sep"], height=1).pack(fill="x", padx=24, pady=(3, 6))
 
-    def _sec(txt):
-        tk.Label(body, text=txt, font=("Segoe UI", 8, "bold"),
-                 fg=C["accent"], bg=C["bg"]).pack(anchor="w", pady=(10, 0))
-        tk.Frame(body, bg=C["sep"], height=1).pack(fill="x", pady=(2, 4))
+    # ── Área scrollable (PASO 1 / 2 / 3) ────────────────────────────────────
+    _sf_wrap = tk.Frame(win, bg=C["bg"])
+    _sf_wrap.pack(fill="both", expand=True)
+    _canvas  = tk.Canvas(_sf_wrap, bg=C["bg"], highlightthickness=0)
+    _vscroll = tk.Scrollbar(_sf_wrap, orient="vertical", command=_canvas.yview)
+    _inner   = tk.Frame(_canvas, bg=C["bg"])
+    _canvas.pack(side="left", fill="both", expand=True)
+    _vscroll.pack(side="right", fill="y")
+    _cwin = _canvas.create_window((0, 0), window=_inner, anchor="nw")
+    _inner.bind("<Configure>",
+                lambda e: _canvas.configure(scrollregion=_canvas.bbox("all")))
+    _canvas.bind("<Configure>",
+                 lambda e: _canvas.itemconfig(_cwin, width=e.width))
+    _canvas.configure(yscrollcommand=_vscroll.set)
+    def _mwheel(e):
+        _canvas.yview_scroll(-1 if e.delta > 0 else 1, "units")
+    for _w in (_canvas, _inner):
+        _w.bind("<MouseWheel>", _mwheel)
 
-    def _row(lbl, default="", req=False):
-        f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
-        col = C["req"] if req else C["muted"]
-        tk.Label(f, text=(lbl + " *" if req else lbl), width=24, anchor="e",
-                 font=("Segoe UI", 9), fg=col, bg=C["bg"]).pack(side="left", padx=8)
-        var = tk.StringVar(value=default)
-        tk.Entry(f, textvariable=var, width=28,
-                 bg=C["entry"], fg=C["text"], insertbackground=C["text"],
-                 relief="flat", font=("Segoe UI", 10),
-                 highlightthickness=1, highlightbackground="#2E3250",
-                 highlightcolor=C["accent"], bd=4).pack(side="left")
-        return var
+    # ── PASO 1: Cantidad ──────────────────────────────────────────────────────
+    _sec(_inner, "PASO 1 — CANTIDAD A SEPARAR", C["blue"])
+    body1 = tk.Frame(_inner, bg=C["bg"], padx=24); body1.pack(fill="x")
 
-    def _dropdown(lbl, opciones, default=""):
-        f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
-        tk.Label(f, text=lbl, width=24, anchor="e",
-                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=8)
-        var = tk.StringVar(value=default or opciones[0])
-        opt = tk.OptionMenu(f, var, *opciones)
-        opt.config(bg=C["entry"], fg=C["text"], activebackground="#3d4f7c",
-                   activeforeground=C["text"], relief="flat", bd=0,
-                   font=("Segoe UI", 10), width=10, highlightthickness=1,
-                   highlightbackground="#2E3250")
-        opt["menu"].config(bg=C["entry"], fg=C["text"],
-                           activebackground="#3d4f7c", font=("Segoe UI", 10))
-        opt.pack(side="left")
-        return var
-
-    def _spin(lbl, default=1):
-        f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
-        tk.Label(f, text=lbl, width=24, anchor="e",
-                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=8)
+    spins = []
+    def _spin(lbl, default, parent):
+        f = tk.Frame(parent, bg=C["bg"], pady=3); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=26, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
         var = tk.IntVar(value=default)
-        tk.Spinbox(f, from_=0, to=20, textvariable=var, width=5,
-                   bg=C["entry"], fg=C["text"], insertbackground=C["text"],
-                   buttonbackground="#1C1E2B", relief="flat",
-                   font=("Segoe UI", 11, "bold")).pack(side="left")
+        sb = tk.Spinbox(f, from_=0, to=20, textvariable=var, width=5,
+                        bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+                        buttonbackground=C["panel"], relief="flat",
+                        font=("Segoe UI", 11, "bold"),
+                        highlightthickness=1, highlightbackground=C["border"])
+        sb.pack(side="left")
+        spins.append(sb)
         return var
 
-    _sec("CANTIDAD")
-    nv  = _spin("Vitros  (T-xxxx)")
-    ng  = _spin("Mallas grandes  (A-xxxx)", 0)
-    np_ = _spin("Mallas pequenas  (numero)", 0)
+    nv  = _spin("Vitros  (T-xxxx)",           1, body1)
+    ng  = _spin("Mallas grandes  (A-xxxx)",    0, body1)
+    np_ = _spin("Mallas pequeñas  (número)",   0, body1)
 
-    _sec("DATOS DEL VEHICULO")
-    v_veh  = _row("Nombre vehículo",    req=True)
-    v_cod  = _row("Cod. vehiculo",     req=True)
-    v_ver  = _row("Versión",           req=True)
-    v_piez = _row("Pieza",             req=True)
-    v_comp = _row("Cod. completo veh.")
-    v_bn   = _dropdown("B/N (BN o BNI)", ["BN", "BNI"], default="BN")
-
-    _sec("ARCHIVO")
-    ruta_var = tk.StringVar()
-    rf = tk.Frame(body, bg=C["bg"], pady=3); rf.pack(fill="x")
-    tk.Label(rf, text="Ruta archivo *", width=24, anchor="e",
-             font=("Segoe UI", 9), fg=C["req"], bg=C["bg"]).pack(side="left", padx=8)
-    tk.Entry(rf, textvariable=ruta_var, width=24,
-             bg=C["entry"], fg=C["text"], insertbackground=C["text"],
-             relief="flat", font=("Segoe UI", 9),
-             highlightthickness=1, highlightbackground="#2E3250",
-             highlightcolor=C["accent"], bd=4).pack(side="left")
-    tk.Button(rf, text="...",
-              command=lambda: ruta_var.set(
-                  filedialog.askopenfilename(
-                      title="Seleccionar archivo",
-                      filetypes=[("DWG / PDF", "*.dwg *.pdf"), ("Todos", "*.*")]
-                  ) or ruta_var.get()),
-              bg="#2D3250", fg=C["text"], relief="flat",
-              font=("Segoe UI", 9), padx=6, cursor="hand2").pack(side="left", padx=4)
-
-    _sec("RESPONSABLE")
-    v_resp = _row("Nombre responsable *", req=True)
-
-    # Panel resultado — visible siempre (vacío al inicio, lleno tras confirmar)
-    pf = tk.Frame(win, bg=C["panel"], padx=16, pady=14)
-    pf.pack(fill="x", padx=24, pady=(8, 2))
-    plbl_titulo = tk.Label(pf, text="", font=("Segoe UI", 11, "bold"),
-                           fg=C["green"], bg=C["panel"])
-    plbl_titulo.pack(anchor="w")
-    # Contenedor para filas de códigos copiables (se llena en _hacer_confirmar)
-    pf_codigos = tk.Frame(pf, bg=C["panel"])
-    pf_codigos.pack(anchor="w", pady=(4, 0))
-    plbl_sub = tk.Label(pf, text="", font=("Segoe UI", 9),
-                        fg=C["muted"], bg=C["panel"])
-    plbl_sub.pack(anchor="w")
+    # ── PASO 2: Números reservados ────────────────────────────────────────────
+    _sec(_inner, "PASO 2 — NÚMEROS RESERVADOS", C["orange"])
+    pf = tk.Frame(_inner, bg=C["panel"], padx=16, pady=12)
+    pf.pack(fill="x", padx=24, pady=(0, 4))
+    lbl_reserva_estado = tk.Label(
+        pf,
+        text="Presiona  «  Reservar ahora  »  para asignar los números.",
+        font=("Segoe UI", 10), fg=C["dim"], bg=C["panel"])
+    lbl_reserva_estado.pack(anchor="w")
+    pf_codigos = tk.Frame(pf, bg=C["panel"]); pf_codigos.pack(anchor="w", pady=(4, 0))
 
     def _limpiar_codigos():
         for w in pf_codigos.winfo_children():
             w.destroy()
 
     def _agregar_fila_codigo(tipo_lbl, codigos):
-        """Muestra una fila: 'Vitro:  T-0042  [📋]  T-0043  [📋]'"""
-        fila = tk.Frame(pf_codigos, bg=C["panel"])
-        fila.pack(anchor="w", pady=1)
+        fila = tk.Frame(pf_codigos, bg=C["panel"]); fila.pack(anchor="w", pady=2)
         tk.Label(fila, text=f"{tipo_lbl}:", width=10, anchor="e",
                  font=("Segoe UI", 10, "bold"), fg=C["muted"], bg=C["panel"]
                  ).pack(side="left", padx=(0, 8))
         for cod in codigos:
             cod_s = str(cod)
             tk.Label(fila, text=cod_s,
-                     font=("Segoe UI", 13, "bold"), fg=C["text"], bg=C["panel"]
+                     font=("Segoe UI", 14, "bold"), fg=C["green"], bg=C["panel"]
                      ).pack(side="left", padx=(0, 2))
-            def _copiar(c=cod_s):
-                win.clipboard_clear()
-                win.clipboard_append(c)
-                win.update()
-            btn_c = tk.Button(fila, text="📋", command=_copiar,
-                              bg=C["panel"], fg=C["muted"], relief="flat", bd=0,
+            def _cp(c=cod_s):
+                win.clipboard_clear(); win.clipboard_append(c); win.update()
+            btn_c = tk.Button(fila, text="📋", command=_cp,
+                              bg=C["panel"], fg=C["dim"], relief="flat", bd=0,
                               font=("Segoe UI", 9), cursor="hand2", padx=2)
-            btn_c.bind("<Enter>", lambda e, b=btn_c: b.configure(fg=C["accent"]))
-            btn_c.bind("<Leave>", lambda e, b=btn_c: b.configure(fg=C["muted"]))
-            btn_c.pack(side="left", padx=(0, 12))
+            btn_c.bind("<Enter>", lambda e, b=btn_c: b.configure(fg=C["green"]))
+            btn_c.bind("<Leave>", lambda e, b=btn_c: b.configure(fg=C["dim"]))
+            btn_c.pack(side="left", padx=(0, 10))
 
-    btn_confirmar_ref = [None]
+    # ── PASO 3: Datos del vehículo (opcionales) ───────────────────────────────
+    _sec(_inner, "PASO 3 — DATOS DEL VEHÍCULO  (todos opcionales, puedes completar después en Gestión BD)",
+         C["muted"])
+    body3 = tk.Frame(_inner, bg=C["bg"], padx=24); body3.pack(fill="x")
 
-    def _hacer_confirmar():
-        faltantes = []
-        for var, nombre in [(v_veh, "Nombre vehículo"), (v_cod, "Cod. vehiculo"),
-                             (v_ver, "Versión"), (v_piez, "Pieza"),
-                             (ruta_var, "Ruta archivo"), (v_resp, "Nombre responsable")]:
-            if not var.get().strip():
-                faltantes.append(nombre)
-        if faltantes:
-            messagebox.showwarning(
-                "Campos requeridos",
-                "Completa los siguientes campos:\n  " + "\n  ".join(faltantes))
-            return
+    def _row(lbl, default=""):
+        f = tk.Frame(body3, bg=C["bg"], pady=2); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=24, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+        var = tk.StringVar(value=default)
+        tk.Entry(f, textvariable=var, width=30,
+                 bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+                 relief="flat", font=("Segoe UI", 10),
+                 highlightthickness=1, highlightbackground=C["border"],
+                 highlightcolor=C["blue"], bd=4).pack(side="left")
+        return var
+
+    def _dropdown(lbl, opciones, default=""):
+        f = tk.Frame(body3, bg=C["bg"], pady=2); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=24, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+        var = tk.StringVar(value=default or opciones[0])
+        opt = tk.OptionMenu(f, var, *opciones)
+        opt.config(bg=C["entry"], fg=C["text"], activebackground="#1f6feb",
+                   activeforeground=C["text"], relief="flat", bd=0,
+                   font=("Segoe UI", 10), width=10, highlightthickness=1,
+                   highlightbackground=C["border"])
+        opt["menu"].config(bg=C["entry"], fg=C["text"],
+                           activebackground="#1f6feb", font=("Segoe UI", 10))
+        opt.pack(side="left")
+        return var
+
+    v_veh  = _row("Nombre vehículo")
+    v_cod  = _row("Cód. vehículo")
+    v_ver  = _row("Versión")
+    v_piez = _row("Pieza")
+    v_comp = _row("Cód. completo veh.")
+    v_bn   = _dropdown("B/N", ["BN", "BNI"], default="BN")
+
+    # Ruta archivo
+    ruta_var = tk.StringVar()
+    rf = tk.Frame(body3, bg=C["bg"], pady=2); rf.pack(fill="x")
+    tk.Label(rf, text="Ruta archivo", width=24, anchor="e",
+             font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+    tk.Entry(rf, textvariable=ruta_var, width=24,
+             bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+             relief="flat", font=("Segoe UI", 9),
+             highlightthickness=1, highlightbackground=C["border"],
+             highlightcolor=C["blue"], bd=4).pack(side="left")
+    tk.Button(rf, text="...",
+              command=lambda: ruta_var.set(
+                  filedialog.askopenfilename(
+                      filetypes=[("DWG / PDF", "*.dwg *.pdf"), ("Todos", "*.*")]
+                  ) or ruta_var.get()),
+              bg=C["panel"], fg=C["muted"], relief="flat",
+              font=("Segoe UI", 9), padx=6, cursor="hand2").pack(side="left", padx=4)
+
+    v_resp = _row("Responsable")
+
+    # ── Botones ───────────────────────────────────────────────────────────────
+    tk.Frame(win, bg=C["sep"], height=1).pack(fill="x", padx=0, pady=(10, 0))
+    bf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); bf.pack(fill="x")
+
+    def _liberar_pendiente():
+        """Cancela reserva activa si no fue confirmada."""
+        if reserva_actual[0] and not confirmado[0]:
+            try:
+                cancelar(reserva_actual[0])
+            except Exception:
+                pass
+
+    def _cerrar():
+        _liberar_pendiente()
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", _cerrar)
+    win.bind("<Escape>", lambda _: _cerrar())
+
+    # Botón RESERVAR
+    b_reservar = tk.Button(
+        bf, text="  🔒 Reservar ahora  ",
+        bg=C["blue2"], fg="#fff", activebackground=C["blue"],
+        activeforeground="#fff", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2")
+
+    # Botón CONFIRMAR (disabled hasta que haya reserva)
+    b_confirmar = tk.Button(
+        bf, text="  ✔ Confirmar y guardar  ",
+        bg=C["green2"], fg="#fff", activebackground=C["green"],
+        activeforeground="#fff", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8,
+        cursor="hand2", state="disabled")
+
+    # Botón CANCELAR/CERRAR
+    b_cerrar = tk.Button(
+        bf, text="  ✕ Cancelar y liberar  ",
+        bg="#3d1f1f", fg="#ffa657", activebackground="#5a2e0e",
+        activeforeground="#ffa657", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2",
+        command=_cerrar)
+
+    def _hacer_reservar():
         if nv.get() == 0 and ng.get() == 0 and np_.get() == 0:
             messagebox.showwarning("Sin cantidad", "Indica al menos 1 vitro o malla.")
             return
-
-        plbl_titulo.configure(text="Guardando...", fg=C["muted"])
+        # Intentar cancelar reserva anterior; si falla, avisar pero continuar
+        if reserva_actual[0] and not confirmado[0]:
+            try:
+                cancelar(reserva_actual[0])
+            except Exception as _e_cancel:
+                messagebox.showwarning(
+                    "Aviso",
+                    f"No se pudo liberar la reserva anterior:\n{_e_cancel}\n\n"
+                    "Los números anteriores quedarán PENDIENTE hasta que el limpiador automático los libere (30 min).")
+        reserva_actual[0] = None
+        lbl_reserva_estado.configure(text="Reservando...", fg=C["muted"])
         _limpiar_codigos()
-        plbl_sub.configure(text="")
         win.update()
         try:
             res = reservar(nv.get(), ng.get(), np_.get())
+            reserva_actual[0] = res
+            confirmado[0] = False
+            _limpiar_codigos()
+            if res["vitros"]:   _agregar_fila_codigo("Vitro",   res["vitros"])
+            if res["grandes"]:  _agregar_fila_codigo("Malla G", res["grandes"])
+            if res["pequenas"]: _agregar_fila_codigo("Malla P", [str(c) for c in res["pequenas"]])
+            lbl_reserva_estado.configure(
+                text="✔  Números reservados (PENDIENTE en BD). Llenar datos y confirmar.",
+                fg=C["green"])
+            b_confirmar.configure(state="normal")
+            b_reservar.configure(text="  🔄 Re-reservar (nueva cantidad)  ")
+            b_cerrar.configure(text="  ✕ Cancelar y liberar  ")
+            for sb in spins:
+                sb.configure(state="disabled")
+        except Exception as e:
+            lbl_reserva_estado.configure(text=f"Error al reservar: {e}", fg=C["red"])
+
+    def _hacer_confirmar():
+        if not reserva_actual[0]:
+            messagebox.showwarning("Sin reserva", "Primero reserva los números.")
+            return
+        try:
             prop_real = _do_confirmar(
-                res,
-                vehiculo     = v_veh.get().strip(),
-                version      = v_ver.get().strip(),
-                pieza        = v_piez.get().strip(),
-                cod_vehiculo = v_cod.get().strip(),
+                reserva_actual[0],
+                vehiculo     = v_veh.get().strip() or None,
+                version      = v_ver.get().strip() or None,
+                pieza        = v_piez.get().strip() or None,
+                cod_vehiculo = v_cod.get().strip() or None,
                 cod_completo = v_comp.get().strip() or None,
                 bnerig       = v_bn.get().strip() or "BN",
-                tipo         = "S",
-                ruta_archivo = ruta_var.get().strip(),
-                responsable  = v_resp.get().strip(),
+                tipo         = v_bn.get().strip() or "BN",
+                ruta_archivo = ruta_var.get().strip() or None,
+                responsable  = v_resp.get().strip() or None,
             )
-            resultado[0] = prop_real
-
-            # Mostrar códigos asignados con botones copiar
-            _limpiar_codigos()
-            if prop_real["vitros"]:
-                _agregar_fila_codigo("Vitro", prop_real["vitros"])
-            if prop_real["grandes"]:
-                _agregar_fila_codigo("Malla G", prop_real["grandes"])
-            if prop_real["pequenas"]:
-                _agregar_fila_codigo("Malla P", [str(c) for c in prop_real["pequenas"]])
-
-            plbl_titulo.configure(text="✔  Asignacion guardada en BD", fg=C["green"])
-            plbl_sub.configure(
-                text=f"Vehiculo: {v_veh.get().strip()}  |  Version: {v_ver.get().strip()}  |  "
-                     f"Responsable: {v_resp.get().strip()}",
-                fg=C["muted"])
-
-            # Deshabilitar boton confirmar, habilitar Nuevo / Cerrar
-            if btn_confirmar_ref[0]:
-                btn_confirmar_ref[0].configure(state="disabled", bg="#1A1C2A")
+            resultado[0]  = prop_real
+            confirmado[0] = True
+            lbl_reserva_estado.configure(
+                text="✔  ASIGNADO y guardado en BD.", fg=C["green"])
+            b_confirmar.configure(state="disabled", bg="#1a2b1a")
+            b_reservar.configure(state="disabled", bg="#1a1a2e")
+            b_cerrar.configure(text="  Cerrar  ",
+                               bg=C["panel"], fg=C["muted"],
+                               activebackground=C["sep"])
+            lbl_sub_hdr.configure(
+                text=f"Guardado correctamente.  Veh: {v_veh.get().strip() or '—'}  |  "
+                     f"Resp: {v_resp.get().strip() or '—'}")
         except Exception as e:
-            _limpiar_codigos()
-            plbl_titulo.configure(text=f"Error al guardar: {e}", fg=C["red"])
-            plbl_sub.configure(text="")
+            messagebox.showerror("Error al confirmar", str(e))
 
-    def cancel():
-        win.destroy()
+    b_reservar.configure(command=_hacer_reservar)
+    b_confirmar.configure(command=_hacer_confirmar)
 
-    win.protocol("WM_DELETE_WINDOW", cancel)
-    bf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); bf.pack(fill="x")
+    b_reservar.bind("<Enter>",   lambda _: b_reservar.configure(bg=C["blue"]))
+    b_reservar.bind("<Leave>",   lambda _: b_reservar.configure(bg=C["blue2"]))
+    b_confirmar.bind("<Enter>",  lambda _: b_confirmar.configure(bg=C["green"])
+                                 if str(b_confirmar["state"]) != "disabled" else None)
+    b_confirmar.bind("<Leave>",  lambda _: b_confirmar.configure(bg=C["green2"])
+                                 if str(b_confirmar["state"]) != "disabled" else None)
 
-    def _btn(txt, cmd, bg, hov):
-        b = tk.Button(bf, text=txt, command=cmd, bg=bg, fg="#FFF",
-                      activebackground=hov, activeforeground="#FFF",
-                      relief="flat", bd=0, font=("Segoe UI", 10, "bold"),
-                      padx=12, pady=8, cursor="hand2")
-        b.bind("<Enter>", lambda _: b.configure(bg=hov))
-        b.bind("<Leave>", lambda _: b.configure(bg=bg))
-        b.pack(side="left", padx=(0, 8))
+    b_reservar.pack(side="left", padx=(0, 8))
+    b_confirmar.pack(side="left", padx=(0, 8))
+    b_cerrar.pack(side="left", padx=(0, 8))
 
-    b_conf = tk.Button(bf, text="Confirmar separacion", command=_hacer_confirmar,
-                       bg=C["accent"], fg="#FFF", activebackground=C["accent2"],
-                       activeforeground="#FFF", relief="flat", bd=0,
-                       font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2")
-    b_conf.bind("<Enter>", lambda _: b_conf.configure(bg=C["accent2"]) if str(b_conf["state"]) != "disabled" else None)
-    b_conf.bind("<Leave>", lambda _: b_conf.configure(bg=C["accent"])  if str(b_conf["state"]) != "disabled" else None)
-    b_conf.pack(side="left", padx=(0, 8))
-    btn_confirmar_ref[0] = b_conf
-
-    _btn("Cerrar", cancel, "#2A2A3A", "#3A3A4A")
-
-    win.bind("<Escape>", lambda _: cancel())
     win.update_idletasks()
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
-    w = max(win.winfo_reqwidth(), 500)
-    h = win.winfo_reqheight()
+    w = max(win.winfo_reqwidth(), 520)
+    h = min(win.winfo_reqheight() + 20, sh - 80)
     win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
 
     if parent_win:
