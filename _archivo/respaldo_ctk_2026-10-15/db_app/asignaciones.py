@@ -1,0 +1,866 @@
+# -*- coding: utf-8 -*-
+"""
+Motor de asignacion de vitros y mallas con sistema de reservas.
+
+Estados posibles en columna `estado`:
+  NULL        -> importado del Excel, dato historico
+  PENDIENTE   -> reservado, el usuario esta llenando el cajetin / formulario
+  ASIGNADO    -> confirmado, datos guardados
+  CANCELADO   -> el usuario cancelo, numero reciclable
+
+Flujo auto (desde cajetin):
+  reservar()  -> INSERT/UPDATE estado=PENDIENTE, retorna codigos reales
+  confirmar() -> UPDATE estado=ASIGNADO + datos
+  cancelar()  -> UPDATE estado=CANCELADO (reciclable)
+
+Flujo manual (separar):
+  reservar() + confirmar() en un solo paso dentro de dialogo_separar()
+  Si cancela el dialogo -> cancelar() sobre lo reservado
+
+Prioridad al elegir numeros:
+  1. Filas CANCELADO (reciclar antes que crear nuevo)
+  2. NEXT VALUE FOR de la SEQUENCE (nuevo numero, atomico multi-PC)
+
+UPDLOCK + READPAST garantiza que dos PCs no reclamen el mismo CANCELADO.
+"""
+
+import os, sys
+
+_DIR = os.path.dirname(__file__)
+sys.path.insert(0, _DIR)
+from importar_excel import conectar
+
+
+# ---------------------------------------------------------------------------
+#  Helpers de secuencia
+# ---------------------------------------------------------------------------
+
+def _next_from_seq(cur, seq_name, n, fmt):
+    resultado = []
+    for _ in range(n):
+        cur.execute(f"SELECT NEXT VALUE FOR {seq_name}")
+        resultado.append(fmt(cur.fetchone()[0]))
+    return resultado
+
+
+def sincronizar_secuencias():
+    """Llamar al final de cada sync del Excel."""
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        checks = [
+            ("mallas.seq_vitro",
+             "SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(vitro,3,50) AS INT)),0) "
+             "FROM mallas.vitrojet WHERE vitro LIKE 'T-[0-9]%'"),
+            ("mallas.seq_grande",
+             "SELECT ISNULL(MAX(TRY_CAST(SUBSTRING(codigo,3,50) AS INT)),0) "
+             "FROM mallas.grandes WHERE codigo LIKE 'A-[0-9]%'"),
+            ("mallas.seq_pequena",
+             "SELECT ISNULL(MAX(TRY_CAST(codigo AS INT)),0) FROM mallas.pequenas"),
+        ]
+        for seq, qmax in checks:
+            cur.execute(qmax)
+            max_n = cur.fetchone()[0] or 0
+            cur.execute(
+                "SELECT CAST(current_value AS BIGINT) "
+                "FROM sys.sequences WHERE object_id = OBJECT_ID(?)", (seq,))
+            row = cur.fetchone()
+            if row and row[0] <= max_n:
+                cur.execute(f"ALTER SEQUENCE {seq} RESTART WITH {max_n + 1}")
+        cn.commit()
+    finally:
+        cn.close()
+
+
+# ---------------------------------------------------------------------------
+#  Core: reservar / confirmar / cancelar
+# ---------------------------------------------------------------------------
+
+def reservar(n_vitros=0, n_grandes=0, n_pequenas=0):
+    """
+    Reserva codigos unicos en BD con estado=PENDIENTE.
+    Multi-PC safe: UPDLOCK+READPAST para CANCELADOS, SEQUENCE para nuevos.
+    Retorna dict con vitros/grandes/pequenas (codigos reales, ya en BD).
+    """
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+
+        vitros   = _reservar_tabla(cur, n_vitros,   "vitrojet",  "vitro",
+                                   "mallas.seq_vitro",
+                                   lambda n: f"T-{n:04d}",
+                                   "vitro LIKE 'T-[0-9]%'")
+        grandes  = _reservar_tabla(cur, n_grandes,  "grandes",   "codigo",
+                                   "mallas.seq_grande",
+                                   lambda n: f"A-{n}",
+                                   "codigo LIKE 'A-[0-9]%'")
+        pequenas = _reservar_tabla(cur, n_pequenas, "pequenas",  "codigo",
+                                   "mallas.seq_pequena",
+                                   lambda n: n,
+                                   "1=1")
+
+        # Vincular vitros a sus mallas inmediatamente (visible incluso si cancela)
+        all_mallas = grandes + [str(p) for p in pequenas]
+        for v, m in zip(vitros, all_mallas):
+            tm = "G" if str(m).startswith("A-") else "P"
+            cur.execute(
+                "UPDATE mallas.vitrojet SET codigo_malla=?, tipo_malla=? WHERE vitro=?",
+                (m, tm, v))
+
+        cn.commit()
+        return {
+            "vitros":    vitros,
+            "grandes":   grandes,
+            "pequenas":  pequenas,
+            "n_vitros":  n_vitros,
+            "n_grandes": n_grandes,
+            "n_pequenas":n_pequenas,
+        }
+    except Exception:
+        try: cn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        cn.close()
+
+
+def _reservar_tabla(cur, n, tabla, pk, seq, fmt, filtro_nuevo):
+    """
+    Reserva n codigos de `mallas.{tabla}`:
+      - Primero reclama CANCELADOS (UPDLOCK+READPAST = atomico)
+      - Luego crea nuevos con SEQUENCE para los que falten
+    """
+    if n <= 0:
+        return []
+
+    # 1. Reclamar CANCELADOS disponibles
+    cur.execute(
+        f"UPDATE TOP({n}) mallas.{tabla} "
+        f"SET estado='PENDIENTE' "
+        f"OUTPUT inserted.{pk} "
+        f"WHERE estado='CANCELADO'"
+    )
+    reciclados = [str(r[0]) for r in cur.fetchall()]
+    if reciclados:
+        # Actualizar updated_at para poder detectar huérfanos por tiempo
+        placeholders = ",".join(["?"] * len(reciclados))
+        cur.execute(
+            f"UPDATE mallas.{tabla} SET updated_at=GETDATE() "
+            f"WHERE {pk} IN ({placeholders})", reciclados)
+    faltan = n - len(reciclados)
+
+    nuevos = []
+    if faltan > 0:
+        # 2. Crear nuevos con SEQUENCE
+        codigos_nuevos = _next_from_seq(cur, seq, faltan, fmt)
+        for cod in codigos_nuevos:
+            cur.execute(
+                f"INSERT INTO mallas.{tabla} ({pk}, estado, cambio, updated_at) "
+                f"VALUES (?, 'PENDIENTE', 'auto', GETDATE())", (cod,))
+        nuevos = [str(c) for c in codigos_nuevos]
+
+    return reciclados + nuevos
+
+
+def confirmar(reserva, vehiculo="", version="", pieza="", cod_vehiculo="",
+              cod_completo="", bnerig="BN", tipo="S", ruta_archivo="",
+              responsable=None):
+    """
+    Marca la reserva como ASIGNADO y guarda todos los datos.
+    Si falla -> rollback, los codigos quedan PENDIENTE (se pueden cancelar despues).
+    """
+    if not reserva:
+        return reserva
+
+    concat = _concatenar(vehiculo, cod_vehiculo, version, pieza)
+    all_mallas = list(reserva.get("grandes", [])) + \
+                 [str(p) for p in reserva.get("pequenas", [])]
+    vm_map = dict(zip(reserva.get("vitros", []), all_mallas))
+
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+
+        for v in reserva.get("vitros", []):
+            cm = vm_map.get(v, "")
+            tm = "G" if str(cm).startswith("A-") else ("P" if cm else None)
+            cur.execute(
+                "UPDATE mallas.vitrojet SET "
+                "estado='ASIGNADO', codigo_malla=?, tipo_malla=?, cod_completo=?, "
+                "bnerig=?, vehiculo=?, version=?, ruta=?, responsable=?, "
+                "updated_at=GETDATE() WHERE vitro=?",
+                (_val(cm), tm, _val(cod_completo), _val(bnerig) or "BN",
+                 _val(vehiculo), _val(version), _val(ruta_archivo),
+                 _val(responsable), v))
+
+        for g in reserva.get("grandes", []):
+            cur.execute(
+                "UPDATE mallas.grandes SET "
+                "estado='ASIGNADO', cod_veh=?, descripcion=?, pieza=?, tipo=?, "
+                "version=?, concatenar=?, ruta_dwg=?, responsable=?, updated_at=GETDATE() "
+                "WHERE codigo=?",
+                (_val(cod_vehiculo), _val(vehiculo), _val(pieza),
+                 _val(tipo) or "S", _val(version),
+                 _val(concat), _val(ruta_archivo), _val(responsable), g))
+
+        for p in reserva.get("pequenas", []):
+            cur.execute(
+                "UPDATE mallas.pequenas SET "
+                "estado='ASIGNADO', cod_veh=?, descripcion=?, pieza=?, tipo=?, "
+                "version=?, concatenar=?, ruta_dwg=?, responsable=?, updated_at=GETDATE() "
+                "WHERE codigo=?",
+                (_val(cod_vehiculo), _val(vehiculo), _val(pieza),
+                 _val(tipo) or "S", _val(version),
+                 _val(concat), _val(ruta_archivo), _val(responsable), p))
+
+        cn.commit()
+        return reserva
+    except Exception:
+        try: cn.rollback()
+        except Exception: pass
+        raise
+    finally:
+        cn.close()
+
+
+def cancelar(reserva):
+    """
+    Marca los codigos de la reserva como CANCELADO.
+    Quedan reciclables para la proxima reserva.
+    """
+    if not reserva:
+        return
+    vitros   = reserva.get("vitros",   [])
+    grandes  = reserva.get("grandes",  [])
+    pequenas = reserva.get("pequenas", [])
+    if not (vitros or grandes or pequenas):
+        return
+
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        for v in vitros:
+            cur.execute("UPDATE mallas.vitrojet  SET estado='CANCELADO' WHERE vitro=?   AND estado='PENDIENTE'", (v,))
+        for g in grandes:
+            cur.execute("UPDATE mallas.grandes   SET estado='CANCELADO' WHERE codigo=?  AND estado='PENDIENTE'", (g,))
+        for p in pequenas:
+            cur.execute("UPDATE mallas.pequenas  SET estado='CANCELADO' WHERE codigo=?  AND estado='PENDIENTE'", (p,))
+        cn.commit()
+    finally:
+        cn.close()
+
+
+def actualizar_ruta_arte(vitro, malla, ruta):
+    """Actualiza ruta real del archivo arte en BD despues de crearlo (Todo en Uno).
+    vitro y malla pueden ser strings simples ("T-30163") o multiples separados
+    por " / " ("T-30163 / T-30164") segun llena el cajetin cuando reserva varios.
+    """
+    ruta = _val(ruta)
+    if not ruta:
+        return
+
+    def _codigos(s):
+        """Convierte 'T-30163 / T-30164' → ['T-30163', 'T-30164']."""
+        if not s:
+            return []
+        return [c.strip() for c in str(s).split("/") if c.strip()]
+
+    vitros  = _codigos(vitro)
+    mallas  = _codigos(malla)
+    if not (vitros or mallas):
+        return
+
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        for v in vitros:
+            cur.execute("UPDATE mallas.vitrojet SET ruta=? WHERE vitro=?", (ruta, v))
+        for m in mallas:
+            if m.startswith("A-"):
+                cur.execute("UPDATE mallas.grandes SET ruta_dwg=? WHERE codigo=?", (ruta, m))
+            else:
+                cur.execute("UPDATE mallas.pequenas SET ruta_dwg=? WHERE CAST(codigo AS NVARCHAR)=?", (ruta, m))
+        cn.commit()
+    finally:
+        cn.close()
+
+
+def anular_asignacion(tab, pk_val):
+    """Cancela y limpia completamente una fila, dejando el numero reciclable.
+    tab     : 'vitrojet' | 'grandes' | 'pequenas'
+    pk_val  : valor del PK (ej. 'T-30163', 'A-13771', '1024')
+
+    Cascadeo automatico:
+    - vitrojet  -> limpia vitrojet + limpia la malla vinculada (codigo_malla)
+    - grandes   -> limpia grandes  + limpia vitrojet que referencie ese codigo
+    - pequenas  -> limpia pequenas + limpia vitrojet que referencie ese codigo
+    Retorna dict con cuantas filas se limpiaron por tabla.
+    """
+    _NULL_VITRO   = ("vehiculo=NULL, version=NULL, ruta=NULL, responsable=NULL, "
+                     "cod_completo=NULL, bnerig=NULL, tipo_malla=NULL, codigo_malla=NULL")
+    _NULL_MALLA   = ("cod_veh=NULL, descripcion=NULL, pieza=NULL, tipo=NULL, "
+                     "version=NULL, ruta_dwg=NULL, responsable=NULL")
+
+    cn = conectar()
+    resultado = {"vitrojet": 0, "grandes": 0, "pequenas": 0}
+    try:
+        cur = cn.cursor()
+
+        if tab == "vitrojet":
+            # Obtener la malla vinculada antes de limpiar
+            cur.execute("SELECT codigo_malla FROM mallas.vitrojet WHERE vitro=?", (pk_val,))
+            row = cur.fetchone()
+            malla = row[0] if row else None
+
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE vitro=?", (pk_val,))
+            resultado["vitrojet"] = cur.rowcount
+
+            if malla:
+                if str(malla).startswith("A-"):
+                    cur.execute(f"UPDATE mallas.grandes  SET estado='CANCELADO', {_NULL_MALLA} WHERE codigo=?", (malla,))
+                    resultado["grandes"] = cur.rowcount
+                else:
+                    cur.execute(f"UPDATE mallas.pequenas SET estado='CANCELADO', {_NULL_MALLA} WHERE CAST(codigo AS NVARCHAR)=?", (str(malla),))
+                    resultado["pequenas"] = cur.rowcount
+
+        elif tab == "grandes":
+            cur.execute(f"UPDATE mallas.grandes SET estado='CANCELADO', {_NULL_MALLA} WHERE codigo=?", (pk_val,))
+            resultado["grandes"] = cur.rowcount
+            # Limpiar vitrojet que apunte a esta malla
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE codigo_malla=?", (pk_val,))
+            resultado["vitrojet"] = cur.rowcount
+
+        elif tab == "pequenas":
+            cur.execute(f"UPDATE mallas.pequenas SET estado='CANCELADO', {_NULL_MALLA} WHERE CAST(codigo AS NVARCHAR)=?", (str(pk_val),))
+            resultado["pequenas"] = cur.rowcount
+            cur.execute(f"UPDATE mallas.vitrojet SET estado='CANCELADO', {_NULL_VITRO} WHERE codigo_malla=?", (str(pk_val),))
+            resultado["vitrojet"] = cur.rowcount
+
+        cn.commit()
+    finally:
+        cn.close()
+    return resultado
+
+
+def limpiar_pendientes_huerfanos(minutos=30):
+    """Cancela filas PENDIENTE huerfanas al iniciar la app.
+    Solo cancela PENDIENTE con updated_at mas antiguo que `minutos` minutos,
+    para no interferir con sesiones activas en otros PCs.
+    Retorna (n_vitros, n_grandes, n_pequenas) cancelados.
+    """
+    filtro = f"estado='PENDIENTE' AND updated_at < DATEADD(MINUTE, -{minutos}, GETDATE())"
+    cn = conectar()
+    try:
+        cur = cn.cursor()
+        cur.execute(f"UPDATE mallas.vitrojet  SET estado='CANCELADO' WHERE {filtro}")
+        nv = cur.rowcount
+        cur.execute(f"UPDATE mallas.grandes   SET estado='CANCELADO' WHERE {filtro}")
+        ng = cur.rowcount
+        cur.execute(f"UPDATE mallas.pequenas  SET estado='CANCELADO' WHERE {filtro}")
+        np_ = cur.rowcount
+        cn.commit()
+        return nv, ng, np_
+    finally:
+        cn.close()
+
+
+# Alias para compatibilidad con codigo existente
+def proponer(n_vitros=0, n_grandes=0, n_pequenas=0):
+    return reservar(n_vitros, n_grandes, n_pequenas)
+
+
+def separar(n_vitros=0, n_grandes=0, n_pequenas=0, **datos):
+    """Separacion manual: reserva + confirma. Retorna reserva."""
+    res = reservar(n_vitros, n_grandes, n_pequenas)
+    return confirmar(res, **datos)
+
+
+# ---------------------------------------------------------------------------
+#  Helpers
+# ---------------------------------------------------------------------------
+
+def _concatenar(vehiculo, cod_vehiculo, version, pieza):
+    partes = "-".join(str(x) for x in [cod_vehiculo, version, pieza] if str(x).strip())
+    if vehiculo and partes:
+        return f"{vehiculo}-({partes})"
+    return vehiculo or ""
+
+
+def _val(s):
+    if s is None:
+        return None
+    s = str(s).strip()
+    return s if s else None
+
+
+# ---------------------------------------------------------------------------
+#  Dialogo asignacion automatica (desde dialogo_cajetin)
+# ---------------------------------------------------------------------------
+
+def dialogo_asignacion(parent=None, nombre_plano=""):
+    """
+    Reserva codigos REALES con estado=PENDIENTE en cuanto el usuario confirma
+    la cantidad. Los muestra exactos (no aproximados).
+    Retorna la reserva dict para que aceptar() del cajetin llame a confirmar().
+    Si el cajetin se cancela, el llamador debe llamar a cancelar(reserva).
+    """
+    import tkinter as tk
+    from tkinter import messagebox
+
+    C = {
+        "bg": "#12131A", "panel": "#1C1E2B", "sep": "#2A2D45",
+        "accent": "#4D7EFF", "accent2": "#2D55CC",
+        "text": "#E8EAFF", "muted": "#6B7099", "entry": "#1A1C2A",
+        "green": "#3ECF8E", "red": "#FF5757", "orange": "#FF9500",
+    }
+
+    resultado = [None]
+    win = tk.Toplevel(parent) if parent else tk.Tk()
+    if parent:
+        win.grab_set()
+
+    win.title("Asignar vitro / malla")
+    win.configure(bg=C["bg"])
+    win.resizable(False, False)
+    win.attributes("-topmost", True)
+
+    tk.Frame(win, bg=C["accent"], height=4).pack(fill="x")
+    hf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); hf.pack(fill="x")
+    tk.Label(hf, text="Asignacion Automatica",
+             font=("Segoe UI", 15, "bold"), fg=C["text"], bg=C["bg"]).pack(anchor="w")
+    if nombre_plano:
+        tk.Label(hf, text=f"Plano: {nombre_plano}",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(anchor="w")
+
+    body = tk.Frame(win, bg=C["bg"], padx=24); body.pack(fill="x")
+
+    def _sep_lbl(txt):
+        tk.Label(body, text=txt, font=("Segoe UI", 8, "bold"),
+                 fg=C["accent"], bg=C["bg"]).pack(anchor="w", pady=(10, 0))
+        tk.Frame(body, bg=C["sep"], height=1).pack(fill="x", pady=(2, 4))
+
+    def _spin(lbl, default=1):
+        f = tk.Frame(body, bg=C["bg"], pady=3); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=26, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=8)
+        var = tk.IntVar(value=default)
+        tk.Spinbox(f, from_=0, to=20, textvariable=var, width=5,
+                   bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+                   buttonbackground="#1C1E2B", relief="flat",
+                   font=("Segoe UI", 11, "bold")).pack(side="left")
+        return var
+
+    _sep_lbl("CANTIDAD A ASIGNAR")
+    nv  = _spin("Vitros  (T-xxxx)",          1)
+    ng  = _spin("Mallas grandes  (A-xxxx)",  0)
+    np_ = _spin("Mallas pequenas  (numero)", 0)
+
+    _sep_lbl("NUMEROS ASIGNADOS")
+    pf  = tk.Frame(body, bg=C["panel"], padx=14, pady=12); pf.pack(fill="x", pady=(0, 8))
+    plbl = tk.Label(pf,
+                    text='Presiona "Reservar numeros" para ver los codigos exactos.\n'
+                         'Al reservar quedan PENDIENTE en BD hasta que aceptes o canceles.',
+                    font=("Segoe UI", 9), fg=C["muted"], bg=C["panel"],
+                    wraplength=380, justify="left")
+    plbl.pack(anchor="w")
+
+    reserva_actual = [None]
+
+    def _liberar_anterior():
+        if reserva_actual[0]:
+            try: cancelar(reserva_actual[0])
+            except Exception: pass
+            reserva_actual[0] = None
+
+    def hacer_reserva():
+        if nv.get() == 0 and ng.get() == 0 and np_.get() == 0:
+            messagebox.showwarning("Sin cantidad", "Indica al menos 1 vitro o malla.")
+            return
+        plbl.configure(text="Reservando...", fg=C["muted"]); win.update()
+        _liberar_anterior()  # si ya habia reserva anterior con distinta cantidad, cancelarla
+        try:
+            res = reservar(nv.get(), ng.get(), np_.get())
+            reserva_actual[0] = res
+            lineas = []
+            if res["vitros"]:   lineas.append("Vitros:     " + "  ".join(res["vitros"]))
+            if res["grandes"]:  lineas.append("Mallas G:   " + "  ".join(res["grandes"]))
+            if res["pequenas"]: lineas.append("Mallas P:   " + "  ".join(str(c) for c in res["pequenas"]))
+            plbl.configure(
+                text=("\n".join(lineas) + "\n(PENDIENTE en BD - confirmar al aceptar cajetin)"),
+                fg=C["green"])
+        except Exception as e:
+            plbl.configure(text=f"Error: {e}", fg=C["red"])
+
+    def ok():
+        if reserva_actual[0] is None:
+            hacer_reserva()
+            if reserva_actual[0] is None:
+                return
+        resultado[0] = reserva_actual[0]
+        win.destroy()
+
+    def cancel_win():
+        _liberar_anterior()  # -> CANCELADO en BD (reciclable)
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", cancel_win)  # X del titulo
+
+    bf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); bf.pack(fill="x")
+
+    def _btn(txt, cmd, bg, hov):
+        b = tk.Button(bf, text=txt, command=cmd, bg=bg, fg="#FFF",
+                      activebackground=hov, activeforeground="#FFF",
+                      relief="flat", bd=0, font=("Segoe UI", 10, "bold"),
+                      padx=12, pady=7, cursor="hand2")
+        b.bind("<Enter>", lambda _: b.configure(bg=hov))
+        b.bind("<Leave>", lambda _: b.configure(bg=bg))
+        b.pack(side="left", padx=(0, 8))
+
+    _btn("Reservar numeros", hacer_reserva, "#2D3250",    "#3D4270")
+    _btn("Confirmar",        ok,            C["accent"],  C["accent2"])
+    _btn("Cancelar",         cancel_win,    "#2A2A3A",    "#3A3A4A")
+
+    win.bind("<Escape>", lambda _: cancel_win())
+    win.update_idletasks()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    w = max(win.winfo_reqwidth(), 460)
+    win.geometry(f"{w}x{win.winfo_reqheight()}+{(sw-w)//2}+{(sh-win.winfo_reqheight())//2}")
+
+    if parent:
+        parent.wait_window(win)
+    else:
+        win.mainloop()
+
+    return resultado[0]
+
+
+# ---------------------------------------------------------------------------
+#  Dialogo separacion manual (boton naranja en TabArte)
+# ---------------------------------------------------------------------------
+
+_do_confirmar = confirmar
+_do_cancelar  = cancelar
+
+
+def dialogo_separar(parent_win=None):
+    """
+    Separacion manual — flujo en 3 pasos:
+      1. Elegir cantidades → Reservar (PENDIENTE inmediato en BD)
+      2. Ver numeros reservados
+      3. Llenar datos opcionales → Confirmar (ASIGNADO)
+    Si cierra sin confirmar → CANCELADO automatico (libera numeros).
+    """
+    import tkinter as tk
+    from tkinter import messagebox, filedialog
+
+    C = {
+        "bg": "#0d1117", "panel": "#161b22", "sep": "#21262d",
+        "accent": "#f78166", "accent2": "#ff7b72",
+        "text": "#e6edf3", "muted": "#8b949e", "dim": "#484f58",
+        "entry": "#161b22", "border": "#30363d",
+        "green": "#3fb950", "green2": "#238636",
+        "blue": "#58a6ff", "blue2": "#1f6feb",
+        "red": "#f85149", "orange": "#e3b341",
+    }
+
+    resultado      = [None]
+    reserva_actual = [None]   # dict con vitros/grandes/pequenas mientras está PENDIENTE
+    confirmado     = [False]
+
+    win = tk.Toplevel(parent_win) if parent_win else tk.Tk()
+    if parent_win:
+        win.grab_set()
+
+    win.title("Separar vitro / malla")
+    win.configure(bg=C["bg"])
+    win.resizable(False, True)
+    win.attributes("-topmost", True)
+
+    # ── Header ────────────────────────────────────────────────────────────────
+    tk.Frame(win, bg=C["blue2"], height=4).pack(fill="x")
+    hf = tk.Frame(win, bg=C["bg"], pady=12, padx=24); hf.pack(fill="x")
+    tk.Label(hf, text="🔒  Separar Vitro / Malla",
+             font=("Segoe UI", 15, "bold"), fg=C["blue"], bg=C["bg"]).pack(anchor="w")
+    lbl_sub_hdr = tk.Label(
+        hf,
+        text="Los números quedan PENDIENTE en BD al reservar — nadie más los puede tomar.",
+        font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"])
+    lbl_sub_hdr.pack(anchor="w")
+
+    def _sec(parent, txt, color=None):
+        f = tk.Frame(parent, bg=C["bg"]); f.pack(fill="x", padx=24, pady=(10, 0))
+        tk.Label(f, text=txt, font=("Segoe UI", 8, "bold"),
+                 fg=color or C["muted"], bg=C["bg"]).pack(side="left")
+        tk.Frame(parent, bg=C["sep"], height=1).pack(fill="x", padx=24, pady=(3, 6))
+
+    # ── Área scrollable (PASO 1 / 2 / 3) ────────────────────────────────────
+    _sf_wrap = tk.Frame(win, bg=C["bg"])
+    _sf_wrap.pack(fill="both", expand=True)
+    _canvas  = tk.Canvas(_sf_wrap, bg=C["bg"], highlightthickness=0)
+    _vscroll = tk.Scrollbar(_sf_wrap, orient="vertical", command=_canvas.yview)
+    _inner   = tk.Frame(_canvas, bg=C["bg"])
+    _canvas.pack(side="left", fill="both", expand=True)
+    _vscroll.pack(side="right", fill="y")
+    _cwin = _canvas.create_window((0, 0), window=_inner, anchor="nw")
+    _inner.bind("<Configure>",
+                lambda e: _canvas.configure(scrollregion=_canvas.bbox("all")))
+    _canvas.bind("<Configure>",
+                 lambda e: _canvas.itemconfig(_cwin, width=e.width))
+    _canvas.configure(yscrollcommand=_vscroll.set)
+    def _mwheel(e):
+        _canvas.yview_scroll(-1 if e.delta > 0 else 1, "units")
+    for _w in (_canvas, _inner):
+        _w.bind("<MouseWheel>", _mwheel)
+
+    # ── PASO 1: Cantidad ──────────────────────────────────────────────────────
+    _sec(_inner, "PASO 1 — CANTIDAD A SEPARAR", C["blue"])
+    body1 = tk.Frame(_inner, bg=C["bg"], padx=24); body1.pack(fill="x")
+
+    spins = []
+    def _spin(lbl, default, parent):
+        f = tk.Frame(parent, bg=C["bg"], pady=3); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=26, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+        var = tk.IntVar(value=default)
+        sb = tk.Spinbox(f, from_=0, to=20, textvariable=var, width=5,
+                        bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+                        buttonbackground=C["panel"], relief="flat",
+                        font=("Segoe UI", 11, "bold"),
+                        highlightthickness=1, highlightbackground=C["border"])
+        sb.pack(side="left")
+        spins.append(sb)
+        return var
+
+    nv  = _spin("Vitros  (T-xxxx)",           1, body1)
+    ng  = _spin("Mallas grandes  (A-xxxx)",    0, body1)
+    np_ = _spin("Mallas pequeñas  (número)",   0, body1)
+
+    # ── PASO 2: Números reservados ────────────────────────────────────────────
+    _sec(_inner, "PASO 2 — NÚMEROS RESERVADOS", C["orange"])
+    pf = tk.Frame(_inner, bg=C["panel"], padx=16, pady=12)
+    pf.pack(fill="x", padx=24, pady=(0, 4))
+    lbl_reserva_estado = tk.Label(
+        pf,
+        text="Presiona  «  Reservar ahora  »  para asignar los números.",
+        font=("Segoe UI", 10), fg=C["dim"], bg=C["panel"])
+    lbl_reserva_estado.pack(anchor="w")
+    pf_codigos = tk.Frame(pf, bg=C["panel"]); pf_codigos.pack(anchor="w", pady=(4, 0))
+
+    def _limpiar_codigos():
+        for w in pf_codigos.winfo_children():
+            w.destroy()
+
+    def _agregar_fila_codigo(tipo_lbl, codigos):
+        fila = tk.Frame(pf_codigos, bg=C["panel"]); fila.pack(anchor="w", pady=2)
+        tk.Label(fila, text=f"{tipo_lbl}:", width=10, anchor="e",
+                 font=("Segoe UI", 10, "bold"), fg=C["muted"], bg=C["panel"]
+                 ).pack(side="left", padx=(0, 8))
+        for cod in codigos:
+            cod_s = str(cod)
+            tk.Label(fila, text=cod_s,
+                     font=("Segoe UI", 14, "bold"), fg=C["green"], bg=C["panel"]
+                     ).pack(side="left", padx=(0, 2))
+            def _cp(c=cod_s):
+                win.clipboard_clear(); win.clipboard_append(c); win.update()
+            btn_c = tk.Button(fila, text="📋", command=_cp,
+                              bg=C["panel"], fg=C["dim"], relief="flat", bd=0,
+                              font=("Segoe UI", 9), cursor="hand2", padx=2)
+            btn_c.bind("<Enter>", lambda e, b=btn_c: b.configure(fg=C["green"]))
+            btn_c.bind("<Leave>", lambda e, b=btn_c: b.configure(fg=C["dim"]))
+            btn_c.pack(side="left", padx=(0, 10))
+
+    # ── PASO 3: Datos del vehículo (opcionales) ───────────────────────────────
+    _sec(_inner, "PASO 3 — DATOS DEL VEHÍCULO  (todos opcionales, puedes completar después en Gestión BD)",
+         C["muted"])
+    body3 = tk.Frame(_inner, bg=C["bg"], padx=24); body3.pack(fill="x")
+
+    def _row(lbl, default=""):
+        f = tk.Frame(body3, bg=C["bg"], pady=2); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=24, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+        var = tk.StringVar(value=default)
+        tk.Entry(f, textvariable=var, width=30,
+                 bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+                 relief="flat", font=("Segoe UI", 10),
+                 highlightthickness=1, highlightbackground=C["border"],
+                 highlightcolor=C["blue"], bd=4).pack(side="left")
+        return var
+
+    def _dropdown(lbl, opciones, default=""):
+        f = tk.Frame(body3, bg=C["bg"], pady=2); f.pack(fill="x")
+        tk.Label(f, text=lbl, width=24, anchor="e",
+                 font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+        var = tk.StringVar(value=default or opciones[0])
+        opt = tk.OptionMenu(f, var, *opciones)
+        opt.config(bg=C["entry"], fg=C["text"], activebackground="#1f6feb",
+                   activeforeground=C["text"], relief="flat", bd=0,
+                   font=("Segoe UI", 10), width=10, highlightthickness=1,
+                   highlightbackground=C["border"])
+        opt["menu"].config(bg=C["entry"], fg=C["text"],
+                           activebackground="#1f6feb", font=("Segoe UI", 10))
+        opt.pack(side="left")
+        return var
+
+    v_veh  = _row("Nombre vehículo")
+    v_cod  = _row("Cód. vehículo")
+    v_ver  = _row("Versión")
+    v_piez = _row("Pieza")
+    v_comp = _row("Cód. completo veh.")
+    v_bn   = _dropdown("B/N", ["BN", "BNI"], default="BN")
+
+    # Ruta archivo
+    ruta_var = tk.StringVar()
+    rf = tk.Frame(body3, bg=C["bg"], pady=2); rf.pack(fill="x")
+    tk.Label(rf, text="Ruta archivo", width=24, anchor="e",
+             font=("Segoe UI", 9), fg=C["muted"], bg=C["bg"]).pack(side="left", padx=(0, 8))
+    tk.Entry(rf, textvariable=ruta_var, width=24,
+             bg=C["entry"], fg=C["text"], insertbackground=C["text"],
+             relief="flat", font=("Segoe UI", 9),
+             highlightthickness=1, highlightbackground=C["border"],
+             highlightcolor=C["blue"], bd=4).pack(side="left")
+    tk.Button(rf, text="...",
+              command=lambda: ruta_var.set(
+                  filedialog.askopenfilename(
+                      filetypes=[("DWG / PDF", "*.dwg *.pdf"), ("Todos", "*.*")]
+                  ) or ruta_var.get()),
+              bg=C["panel"], fg=C["muted"], relief="flat",
+              font=("Segoe UI", 9), padx=6, cursor="hand2").pack(side="left", padx=4)
+
+    v_resp = _row("Responsable")
+
+    # ── Botones ───────────────────────────────────────────────────────────────
+    tk.Frame(win, bg=C["sep"], height=1).pack(fill="x", padx=0, pady=(10, 0))
+    bf = tk.Frame(win, bg=C["bg"], pady=14, padx=24); bf.pack(fill="x")
+
+    def _liberar_pendiente():
+        """Cancela reserva activa si no fue confirmada."""
+        if reserva_actual[0] and not confirmado[0]:
+            try:
+                cancelar(reserva_actual[0])
+            except Exception:
+                pass
+
+    def _cerrar():
+        _liberar_pendiente()
+        win.destroy()
+
+    win.protocol("WM_DELETE_WINDOW", _cerrar)
+    win.bind("<Escape>", lambda _: _cerrar())
+
+    # Botón RESERVAR
+    b_reservar = tk.Button(
+        bf, text="  🔒 Reservar ahora  ",
+        bg=C["blue2"], fg="#fff", activebackground=C["blue"],
+        activeforeground="#fff", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2")
+
+    # Botón CONFIRMAR (disabled hasta que haya reserva)
+    b_confirmar = tk.Button(
+        bf, text="  ✔ Confirmar y guardar  ",
+        bg=C["green2"], fg="#fff", activebackground=C["green"],
+        activeforeground="#fff", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8,
+        cursor="hand2", state="disabled")
+
+    # Botón CANCELAR/CERRAR
+    b_cerrar = tk.Button(
+        bf, text="  ✕ Cancelar y liberar  ",
+        bg="#3d1f1f", fg="#ffa657", activebackground="#5a2e0e",
+        activeforeground="#ffa657", relief="flat", bd=0,
+        font=("Segoe UI", 10, "bold"), padx=12, pady=8, cursor="hand2",
+        command=_cerrar)
+
+    def _hacer_reservar():
+        if nv.get() == 0 and ng.get() == 0 and np_.get() == 0:
+            messagebox.showwarning("Sin cantidad", "Indica al menos 1 vitro o malla.")
+            return
+        # Intentar cancelar reserva anterior; si falla, avisar pero continuar
+        if reserva_actual[0] and not confirmado[0]:
+            try:
+                cancelar(reserva_actual[0])
+            except Exception as _e_cancel:
+                messagebox.showwarning(
+                    "Aviso",
+                    f"No se pudo liberar la reserva anterior:\n{_e_cancel}\n\n"
+                    "Los números anteriores quedarán PENDIENTE hasta que el limpiador automático los libere (30 min).")
+        reserva_actual[0] = None
+        lbl_reserva_estado.configure(text="Reservando...", fg=C["muted"])
+        _limpiar_codigos()
+        win.update()
+        try:
+            res = reservar(nv.get(), ng.get(), np_.get())
+            reserva_actual[0] = res
+            confirmado[0] = False
+            _limpiar_codigos()
+            if res["vitros"]:   _agregar_fila_codigo("Vitro",   res["vitros"])
+            if res["grandes"]:  _agregar_fila_codigo("Malla G", res["grandes"])
+            if res["pequenas"]: _agregar_fila_codigo("Malla P", [str(c) for c in res["pequenas"]])
+            lbl_reserva_estado.configure(
+                text="✔  Números reservados (PENDIENTE en BD). Llenar datos y confirmar.",
+                fg=C["green"])
+            b_confirmar.configure(state="normal")
+            b_reservar.configure(text="  🔄 Re-reservar (nueva cantidad)  ")
+            b_cerrar.configure(text="  ✕ Cancelar y liberar  ")
+            for sb in spins:
+                sb.configure(state="disabled")
+        except Exception as e:
+            lbl_reserva_estado.configure(text=f"Error al reservar: {e}", fg=C["red"])
+
+    def _hacer_confirmar():
+        if not reserva_actual[0]:
+            messagebox.showwarning("Sin reserva", "Primero reserva los números.")
+            return
+        try:
+            prop_real = _do_confirmar(
+                reserva_actual[0],
+                vehiculo     = v_veh.get().strip() or None,
+                version      = v_ver.get().strip() or None,
+                pieza        = v_piez.get().strip() or None,
+                cod_vehiculo = v_cod.get().strip() or None,
+                cod_completo = v_comp.get().strip() or None,
+                bnerig       = v_bn.get().strip() or "BN",
+                tipo         = v_bn.get().strip() or "BN",
+                ruta_archivo = ruta_var.get().strip() or None,
+                responsable  = v_resp.get().strip() or None,
+            )
+            resultado[0]  = prop_real
+            confirmado[0] = True
+            lbl_reserva_estado.configure(
+                text="✔  ASIGNADO y guardado en BD.", fg=C["green"])
+            b_confirmar.configure(state="disabled", bg="#1a2b1a")
+            b_reservar.configure(state="disabled", bg="#1a1a2e")
+            b_cerrar.configure(text="  Cerrar  ",
+                               bg=C["panel"], fg=C["muted"],
+                               activebackground=C["sep"])
+            lbl_sub_hdr.configure(
+                text=f"Guardado correctamente.  Veh: {v_veh.get().strip() or '—'}  |  "
+                     f"Resp: {v_resp.get().strip() or '—'}")
+        except Exception as e:
+            messagebox.showerror("Error al confirmar", str(e))
+
+    b_reservar.configure(command=_hacer_reservar)
+    b_confirmar.configure(command=_hacer_confirmar)
+
+    b_reservar.bind("<Enter>",   lambda _: b_reservar.configure(bg=C["blue"]))
+    b_reservar.bind("<Leave>",   lambda _: b_reservar.configure(bg=C["blue2"]))
+    b_confirmar.bind("<Enter>",  lambda _: b_confirmar.configure(bg=C["green"])
+                                 if str(b_confirmar["state"]) != "disabled" else None)
+    b_confirmar.bind("<Leave>",  lambda _: b_confirmar.configure(bg=C["green2"])
+                                 if str(b_confirmar["state"]) != "disabled" else None)
+
+    b_reservar.pack(side="left", padx=(0, 8))
+    b_confirmar.pack(side="left", padx=(0, 8))
+    b_cerrar.pack(side="left", padx=(0, 8))
+
+    win.update_idletasks()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    w = max(win.winfo_reqwidth(), 520)
+    h = min(win.winfo_reqheight() + 20, sh - 80)
+    win.geometry(f"{w}x{h}+{(sw-w)//2}+{(sh-h)//2}")
+
+    if parent_win:
+        parent_win.wait_window(win)
+    else:
+        win.mainloop()
+
+    return resultado[0]

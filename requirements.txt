@@ -3,3 +3,4 @@ pymssql>=2.2.11
 pyodbc>=4.0.35
 openpyxl>=3.1.0
 pywin32>=306
+pywebview>=5.0

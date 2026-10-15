@@ -21,6 +21,7 @@ imports:
     <a href="#_collections_abc">_collections_abc</a>
  &#8226;   <a href="#_weakrefset">_weakrefset</a>
  &#8226;   <a href="#abc">abc</a>
+ &#8226;   <a href="#agp_sso">agp_sso</a>
  &#8226;   <a href="#arte_maker">arte_maker</a>
  &#8226;   <a href="#autocad_ops">autocad_ops</a>
  &#8226;   <a href="#codecs">codecs</a>
@@ -30,8 +31,12 @@ imports:
  &#8226;   <a href="#ctypes">ctypes</a>
  &#8226;   <a href="#customtkinter">customtkinter</a>
  &#8226;   <a href="#datetime">datetime</a>
+ &#8226;   <a href="#db_app">db_app</a>
  &#8226;   <a href="#db_app.asignaciones">db_app.asignaciones</a>
+ &#8226;   <a href="#db_app.auth">db_app.auth</a>
  &#8226;   <a href="#db_app.importar_excel">db_app.importar_excel</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#encodings">encodings</a>
  &#8226;   <a href="#encodings._win_cp_codecs">encodings._win_cp_codecs</a>
  &#8226;   <a href="#encodings.aliases">encodings.aliases</a>
@@ -156,6 +161,7 @@ imports:
  &#8226;   <a href="#encodings.uu_codec">encodings.uu_codec</a>
  &#8226;   <a href="#encodings.zlib_codec">encodings.zlib_codec</a>
  &#8226;   <a href="#enum">enum</a>
+ &#8226;   <a href="#excel_grid">excel_grid</a>
  &#8226;   <a href="#functools">functools</a>
  &#8226;   <a href="#genericpath">genericpath</a>
  &#8226;   <a href="#heapq">heapq</a>
@@ -201,10 +207,12 @@ imports:
  &#8226;   <a href="#stat">stat</a>
  &#8226;   <a href="#subprocess">subprocess</a>
  &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
  &#8226;   <a href="#threading">threading</a>
  &#8226;   <a href="#time">time</a>
  &#8226;   <a href="#tkinter">tkinter</a>
  &#8226;   <a href="#tkinter.filedialog">tkinter.filedialog</a>
+ &#8226;   <a href="#tkinter.font">tkinter.font</a>
  &#8226;   <a href="#tkinter.messagebox">tkinter.messagebox</a>
  &#8226;   <a href="#tkinter.ttk">tkinter.ttk</a>
  &#8226;   <a href="#traceback">traceback</a>
@@ -2811,6 +2819,26 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="agp_sso"></a>
+  <a target="code" href="///C:/Users/abotero/OneDrive%20-%20AGP%20GROUP/Documentos/macro_natalia/agp_sso.py" type="text/plain"><tt>agp_sso</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#base64">base64</a>
+ &#8226;   <a href="#hashlib">hashlib</a>
+ &#8226;   <a href="#hmac">hmac</a>
+ &#8226;   <a href="#json">json</a>
+ &#8226;   <a href="#time">time</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#agp_app.py">agp_app.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="annotationlib"></a>
   <a target="code" href="///C:/Users/abotero/AppData/Local/Programs/Python/Python314/Lib/annotationlib.py" type="text/plain"><tt>annotationlib</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -4036,7 +4064,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#cryptography.hazmat.primitives.serialization.ssh">cryptography.hazmat.primitives.serialization.ssh</a>
+    <a href="#agp_sso">agp_sso</a>
+ &#8226;   <a href="#cryptography.hazmat.primitives.serialization.ssh">cryptography.hazmat.primitives.serialization.ssh</a>
  &#8226;   <a href="#email._encoded_words">email._encoded_words</a>
  &#8226;   <a href="#email.base64mime">email.base64mime</a>
  &#8226;   <a href="#email.encoders">email.encoders</a>
@@ -7274,7 +7303,9 @@ imported by:
  &#8226;   <a href="#customtkinter">customtkinter</a>
  &#8226;   <a href="#customtkinter.windows">customtkinter.windows</a>
  &#8226;   <a href="#customtkinter.windows.widgets.core_widget_classes.ctk_base_class">customtkinter.windows.widgets.core_widget_classes.ctk_base_class</a>
+ &#8226;   <a href="#excel_grid">excel_grid</a>
  &#8226;   <a href="#login_window">login_window</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
 
   </div>
 
@@ -8504,6 +8535,7 @@ imported by:
  &#8226;   <a href="#cryptography.x509.base">cryptography.x509.base</a>
  &#8226;   <a href="#cryptography.x509.extensions">cryptography.x509.extensions</a>
  &#8226;   <a href="#db_app.importar_excel">db_app.importar_excel</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#http.server">http.server</a>
@@ -8611,10 +8643,18 @@ imported by:
   <a name="db_app"></a>
   <a target="code" href="-" type="text/plain"><tt>db_app</tt></a>
 <span class="moduletype">NamespacePackage</span>  <div class="import">
+imports:
+    <a href="#db_app.auth">db_app.auth</a>
+
+  </div>
+  <div class="import">
 imported by:
-    <a href="#db_app.asignaciones">db_app.asignaciones</a>
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#db_app.asignaciones">db_app.asignaciones</a>
  &#8226;   <a href="#db_app.auth">db_app.auth</a>
  &#8226;   <a href="#db_app.importar_excel">db_app.importar_excel</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
 
   </div>
 
@@ -8649,6 +8689,7 @@ imported by:
 <span class="moduletype">SourceModule</span>  <div class="import">
 imports:
     <a href="#db_app">db_app</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#hashlib">hashlib</a>
  &#8226;   <a href="#office365.runtime.auth.user_credential">office365.runtime.auth.user_credential</a>
  &#8226;   <a href="#office365.sharepoint.client_context">office365.sharepoint.client_context</a>
@@ -8661,7 +8702,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#login_window">login_window</a>
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#db_app">db_app</a>
+ &#8226;   <a href="#login_window">login_window</a>
 
   </div>
 
@@ -8686,6 +8729,51 @@ imports:
   <div class="import">
 imported by:
     <a href="#agp_app.py">agp_app.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="db_app.logos_laser"></a>
+  <a target="code" href="///C:/Users/abotero/OneDrive%20-%20AGP%20GROUP/Documentos/macro_natalia/db_app/logos_laser.py" type="text/plain"><tt>db_app.logos_laser</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#db_app">db_app</a>
+ &#8226;   <a href="#importar_excel">importar_excel</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#sys">sys</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
+
+  </div>
+
+</div>
+
+<div class="node">
+  <a name="db_app.tracking"></a>
+  <a target="code" href="///C:/Users/abotero/OneDrive%20-%20AGP%20GROUP/Documentos/macro_natalia/db_app/tracking.py" type="text/plain"><tt>db_app.tracking</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#datetime">datetime</a>
+ &#8226;   <a href="#db_app">db_app</a>
+ &#8226;   <a href="#importar_excel">importar_excel</a>
+ &#8226;   <a href="#os">os</a>
+ &#8226;   <a href="#queue">queue</a>
+ &#8226;   <a href="#socket">socket</a>
+ &#8226;   <a href="#sys">sys</a>
+ &#8226;   <a href="#threading">threading</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#db_app.auth">db_app.auth</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
 
   </div>
 
@@ -12019,6 +12107,25 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="excel_grid"></a>
+  <a target="code" href="///C:/Users/abotero/OneDrive%20-%20AGP%20GROUP/Documentos/macro_natalia/excel_grid.py" type="text/plain"><tt>excel_grid</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#customtkinter">customtkinter</a>
+ &#8226;   <a href="#tkinter">tkinter</a>
+ &#8226;   <a href="#tkinter.font">tkinter.font</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="fcntl"></a>
   <a target="code" href="" type="text/plain"><tt>fcntl</tt></a>
 <span class="moduletype">MissingModule</span>  <div class="import">
@@ -12419,7 +12526,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#cryptography.x509.extensions">cryptography.x509.extensions</a>
+    <a href="#agp_sso">agp_sso</a>
+ &#8226;   <a href="#cryptography.x509.extensions">cryptography.x509.extensions</a>
  &#8226;   <a href="#db_app.auth">db_app.auth</a>
  &#8226;   <a href="#hmac">hmac</a>
  &#8226;   <a href="#jwt.algorithms">jwt.algorithms</a>
@@ -12480,7 +12588,8 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#cryptography.hazmat.primitives.constant_time">cryptography.hazmat.primitives.constant_time</a>
+    <a href="#agp_sso">agp_sso</a>
+ &#8226;   <a href="#cryptography.hazmat.primitives.constant_time">cryptography.hazmat.primitives.constant_time</a>
  &#8226;   <a href="#jwt.algorithms">jwt.algorithms</a>
  &#8226;   <a href="#multiprocessing.connection">multiprocessing.connection</a>
  &#8226;   <a href="#secrets">secrets</a>
@@ -12806,6 +12915,8 @@ imported by:
 <span class="moduletype">MissingModule</span>  <div class="import">
 imported by:
     <a href="#db_app.asignaciones">db_app.asignaciones</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
 
   </div>
 
@@ -13739,6 +13850,7 @@ imports:
   <div class="import">
 imported by:
     <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#agp_sso">agp_sso</a>
  &#8226;   <a href="#charset_normalizer.models">charset_normalizer.models</a>
  &#8226;   <a href="#customtkinter.windows.widgets.theme.theme_manager">customtkinter.windows.widgets.theme.theme_manager</a>
  &#8226;   <a href="#importlib.metadata">importlib.metadata</a>
@@ -55973,6 +56085,8 @@ imported by:
  &#8226;   <a href="#db_app.asignaciones">db_app.asignaciones</a>
  &#8226;   <a href="#db_app.auth">db_app.auth</a>
  &#8226;   <a href="#db_app.importar_excel">db_app.importar_excel</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#doctest">doctest</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#fnmatch">fnmatch</a>
@@ -57558,6 +57672,7 @@ imported by:
     <a href="#concurrent.futures.process">concurrent.futures.process</a>
  &#8226;   <a href="#concurrent.futures.thread">concurrent.futures.thread</a>
  &#8226;   <a href="#concurrent.interpreters._queues">concurrent.interpreters._queues</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#multiprocessing.dummy">multiprocessing.dummy</a>
  &#8226;   <a href="#multiprocessing.dummy.connection">multiprocessing.dummy.connection</a>
  &#8226;   <a href="#multiprocessing.managers">multiprocessing.managers</a>
@@ -62638,6 +62753,7 @@ imported by:
  &#8226;   <a href="#asyncio.trsock">asyncio.trsock</a>
  &#8226;   <a href="#asyncio.unix_events">asyncio.unix_events</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#email.utils">email.utils</a>
  &#8226;   <a href="#ftplib">ftplib</a>
  &#8226;   <a href="#http.client">http.client</a>
@@ -63113,6 +63229,8 @@ imported by:
  &#8226;   <a href="#db_app.asignaciones">db_app.asignaciones</a>
  &#8226;   <a href="#db_app.auth">db_app.auth</a>
  &#8226;   <a href="#db_app.importar_excel">db_app.importar_excel</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#decimal">decimal</a>
  &#8226;   <a href="#dis">dis</a>
  &#8226;   <a href="#doctest">doctest</a>
@@ -63351,6 +63469,26 @@ imported by:
 </div>
 
 <div class="node">
+  <a name="tab_logos_laser"></a>
+  <a target="code" href="///C:/Users/abotero/OneDrive%20-%20AGP%20GROUP/Documentos/macro_natalia/tab_logos_laser.py" type="text/plain"><tt>tab_logos_laser</tt></a>
+<span class="moduletype">SourceModule</span>  <div class="import">
+imports:
+    <a href="#customtkinter">customtkinter</a>
+ &#8226;   <a href="#db_app.logos_laser">db_app.logos_laser</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
+ &#8226;   <a href="#excel_grid">excel_grid</a>
+ &#8226;   <a href="#threading">threading</a>
+
+  </div>
+  <div class="import">
+imported by:
+    <a href="#agp_app.py">agp_app.py</a>
+
+  </div>
+
+</div>
+
+<div class="node">
   <a name="tarfile"></a>
   <a target="code" href="///C:/Users/abotero/AppData/Local/Programs/Python/Python314/Lib/tarfile.py" type="text/plain"><tt>tarfile</tt></a>
 <span class="moduletype">SourceModule</span>  <div class="import">
@@ -63514,6 +63652,7 @@ imported by:
  &#8226;   <a href="#concurrent.interpreters">concurrent.interpreters</a>
  &#8226;   <a href="#cryptography.hazmat.bindings.openssl.binding">cryptography.hazmat.bindings.openssl.binding</a>
  &#8226;   <a href="#db_app.auth">db_app.auth</a>
+ &#8226;   <a href="#db_app.tracking">db_app.tracking</a>
  &#8226;   <a href="#http.cookiejar">http.cookiejar</a>
  &#8226;   <a href="#importlib.util">importlib.util</a>
  &#8226;   <a href="#logging">logging</a>
@@ -63545,6 +63684,7 @@ imported by:
  &#8226;   <a href="#socketserver">socketserver</a>
  &#8226;   <a href="#subprocess">subprocess</a>
  &#8226;   <a href="#sysconfig">sysconfig</a>
+ &#8226;   <a href="#tab_logos_laser">tab_logos_laser</a>
  &#8226;   <a href="#unittest.mock">unittest.mock</a>
  &#8226;   <a href="#urllib3._collections">urllib3._collections</a>
  &#8226;   <a href="#urllib3.connection">urllib3.connection</a>
@@ -63572,6 +63712,7 @@ imported by:
  &#8226;   <a href="#_pyrepl.unix_console">_pyrepl.unix_console</a>
  &#8226;   <a href="#_strptime">_strptime</a>
  &#8226;   <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#agp_sso">agp_sso</a>
  &#8226;   <a href="#arte_maker">arte_maker</a>
  &#8226;   <a href="#asyncio.base_events">asyncio.base_events</a>
  &#8226;   <a href="#asyncio.windows_events">asyncio.windows_events</a>
@@ -63691,6 +63832,7 @@ imported by:
  &#8226;   <a href="#customtkinter.windows.widgets.ctk_textbox">customtkinter.windows.widgets.ctk_textbox</a>
  &#8226;   <a href="#customtkinter.windows.widgets.scaling.scaling_tracker">customtkinter.windows.widgets.scaling.scaling_tracker</a>
  &#8226;   <a href="#db_app.asignaciones">db_app.asignaciones</a>
+ &#8226;   <a href="#excel_grid">excel_grid</a>
  &#8226;   <a href="#tkinter.commondialog">tkinter.commondialog</a>
  &#8226;   <a href="#tkinter.constants">tkinter.constants</a>
  &#8226;   <a href="#tkinter.dialog">tkinter.dialog</a>
@@ -63791,7 +63933,9 @@ imports:
   </div>
   <div class="import">
 imported by:
-    <a href="#customtkinter.windows.widgets.font.ctk_font">customtkinter.windows.widgets.font.ctk_font</a>
+    <a href="#agp_app.py">agp_app.py</a>
+ &#8226;   <a href="#customtkinter.windows.widgets.font.ctk_font">customtkinter.windows.widgets.font.ctk_font</a>
+ &#8226;   <a href="#excel_grid">excel_grid</a>
 
   </div>
 

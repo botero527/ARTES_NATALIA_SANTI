@@ -122,6 +122,10 @@
   ('_threading_local',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\_threading_local.py',
    'PYMODULE'),
+  ('agp_sso',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\agp_sso.py',
+   'PYMODULE'),
   ('annotationlib',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\annotationlib.py',
    'PYMODULE'),
@@ -824,6 +828,14 @@
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\db_app\\importar_excel.py',
    'PYMODULE'),
+  ('db_app.logos_laser',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\db_app\\logos_laser.py',
+   'PYMODULE'),
+  ('db_app.tracking',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\db_app\\tracking.py',
+   'PYMODULE'),
   ('decimal',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\decimal.py',
    'PYMODULE'),
@@ -907,6 +919,10 @@
   ('et_xmlfile.xmlfile',
    'C:\\Users\\abotero\\OneDrive - AGP '
    'GROUP\\Documentos\\macro_natalia\\.venv\\Lib\\site-packages\\et_xmlfile\\xmlfile.py',
+   'PYMODULE'),
+  ('excel_grid',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\excel_grid.py',
    'PYMODULE'),
   ('fnmatch',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\fnmatch.py',
@@ -9345,6 +9361,10 @@
    'PYMODULE'),
   ('sysconfig',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\sysconfig\\__init__.py',
+   'PYMODULE'),
+  ('tab_logos_laser',
+   'C:\\Users\\abotero\\OneDrive - AGP '
+   'GROUP\\Documentos\\macro_natalia\\tab_logos_laser.py',
    'PYMODULE'),
   ('tarfile',
    'C:\\Users\\abotero\\AppData\\Local\\Programs\\Python\\Python314\\Lib\\tarfile.py',

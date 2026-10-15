@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="es" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>AGP Glass — Artes</title>
+<link rel="icon" href="assets/logo_agp.ico" />
+<link rel="stylesheet" href="css/style.css" />
+<script>
+  // Errores JS guardados para diagnóstico (con "agp_web.py --debug" se abren las DevTools)
+  window.__errores = [];
+  addEventListener("error", (e) => window.__errores.push(String(e.message)));
+  addEventListener("unhandledrejection", (e) => window.__errores.push(String(e.reason)));
+</script>
+</head>
+<body>
+
+<!-- ══ LOGIN ══════════════════════════════════════════════════════════ -->
+<section id="login" class="login hide" aria-label="Login">
+  <form class="login-card" id="login-form" autocomplete="on">
+    <img src="assets/logo_agp.png" alt="AGP Group" class="login-logo" />
+    <h1 data-i18n="login.titulo">Iniciar sesión</h1>
+    <p class="sub" data-i18n="login.sub">Glass Suite · Ingeniería — Artes</p>
+    <div class="field">
+      <label for="lg-user" data-i18n="login.usuario">Usuario</label>
+      <input id="lg-user" class="input" placeholder="correo@agpglass.com" autocomplete="username" />
+    </div>
+    <div class="field">
+      <label for="lg-pass" data-i18n="login.clave">Contraseña</label>
+      <input id="lg-pass" class="input" type="password" autocomplete="current-password" />
+    </div>
+    <div class="login-msg" id="lg-msg" role="status"></div>
+    <button class="btn btn-primary" id="lg-btn" type="submit" data-i18n="login.entrar">Entrar</button>
+    <div class="login-tools">
+      <div class="lang" role="group" aria-label="Idioma">
+        <button type="button" data-lang="es">ES</button><button type="button" data-lang="pt">PT</button>
+      </div>
+      <button type="button" class="btn btn-ghost btn-sm btn-icon js-tema" aria-label="Cambiar tema"></button>
+    </div>
+    <div class="login-foot">AGP Group · Ingeniería Colombia</div>
+  </form>
+</section>
+
+<!-- ══ SIN ROL ════════════════════════════════════════════════════════ -->
+<section id="sin-rol" class="login hide">
+  <div class="login-card" style="text-align:center">
+    <img src="assets/logo_agp.png" alt="AGP Group" class="login-logo" />
+    <h1 data-i18n="sinrol.titulo">Sin rol asignado</h1>
+    <p class="soft" id="sin-rol-txt"></p>
+    <button class="btn btn-primary" onclick="pywebview.api.cerrar_app()" data-i18n="comun.cerrar">Cerrar</button>
+  </div>
+</section>
+
+<!-- ══ APP ════════════════════════════════════════════════════════════ -->
+<div id="app" class="app hide">
+  <div class="sidebar-slot">
+    <aside class="sidebar" id="sidebar" aria-label="Navegación">
+      <div class="sb-brand">
+        <div class="sb-logo" aria-hidden="true">AGP</div>
+        <div class="sb-brand-txt"><b>Glass Suite</b><span>ARTES · INGENIERÍA</span></div>
+      </div>
+      <div class="sb-sec" data-i18n="nav.seccion">Herramientas</div>
+      <nav class="sb-nav" id="sb-nav"></nav>
+      <div class="sb-foot">
+        <button class="sb-item" id="sb-pin" aria-label="Fijar menú">
+          <span id="sb-pin-ic"></span><span data-i18n="nav.fijar">Fijar menú</span>
+        </button>
+        <div class="sb-ver" id="sb-ver"></div>
+      </div>
+    </aside>
+  </div>
+
+  <div class="main">
+    <header class="topbar">
+      <div class="topbar-title">
+        <h1 id="tb-title"></h1>
+        <p id="tb-sub"></p>
+      </div>
+      <div class="topbar-tools">
+        <span class="pill" id="pill-bd" title="Base de datos Azure SQL"><span class="dot"></span><span id="pill-bd-txt">BD</span></span>
+        <div class="lang" role="group" aria-label="Idioma">
+          <button data-lang="es" aria-label="Español">ES</button><button data-lang="pt" aria-label="Português">PT</button>
+        </div>
+        <button class="btn btn-ghost btn-icon js-tema" aria-label="Cambiar tema"></button>
+        <div class="user-badge">
+          <div class="avatar" id="u-avatar" aria-hidden="true"></div>
+          <div><b id="u-nombre"></b><span id="u-rol"></span></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="banner hide" id="banner" role="alert">
+      <span id="banner-ic"></span>
+      <div class="txt"><span id="banner-txt"></span><small id="banner-det"></small></div>
+      <button class="btn btn-sm btn-danger" id="banner-retry" data-i18n="comun.reintentar">Reintentar</button>
+      <button class="btn btn-sm btn-ghost btn-icon" id="banner-x" aria-label="Cerrar aviso"></button>
+    </div>
+
+    <main class="content" id="content">
+
+      <!-- ── CREAR ARTE ─────────────────────────────────────────────── -->
+      <section class="page" data-page="arte">
+        <div class="grid-arte">
+          <div class="stack">
+            <div class="card">
+              <div class="card-h"><h2 data-i18n="arte.config">Configuración</h2></div>
+              <div class="stack">
+                <div class="field">
+                  <label for="arte-base" data-i18n="arte.ruta_base">Ruta vehículo / versión</label>
+                  <div class="field-row">
+                    <input id="arte-base" class="input input-ruta" spellcheck="false" placeholder="\\192.168.2.37\ingenieria\PRODUCCION\AGP PLANOS TECNICOS\..." />
+                    <button class="btn" id="arte-base-pick"><span data-icon="folder"></span><span data-i18n="comun.explorar">Explorar</span></button>
+                  </div>
+                </div>
+                <div class="field">
+                  <label for="arte-dwg" data-i18n="arte.plano">Plano DWG original</label>
+                  <div class="field-row">
+                    <input id="arte-dwg" class="input input-ruta" spellcheck="false" placeholder="...\PLANO.dwg" />
+                    <button class="btn" id="arte-dwg-pick"><span data-icon="file"></span><span data-i18n="comun.explorar">Explorar</span></button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-h"><h2 data-i18n="arte.workflow">Workflow</h2><span class="sp"></span>
+                <span class="busy-txt hide" id="arte-busy"><span class="spinner"></span><span data-i18n="arte.trabajando">AutoCAD trabajando…</span></span>
+              </div>
+              <div class="wf">
+                <button class="wf-btn extraer" data-accion="extraer"><span class="wf-ic" data-icon="download"></span>
+                  <span><b data-i18n="arte.extraer">Extraer plano</b><small data-i18n="arte.extraer_d">Saca los layers a PLANOS\…_PLANO.dwg</small></span></button>
+                <button class="wf-btn crear" data-accion="crear"><span class="wf-ic" data-icon="palette"></span>
+                  <span><b data-i18n="arte.crear">Crear arte</b><small data-i18n="arte.crear_d">Cajetín + arte en ARTES\BN</small></span></button>
+                <button class="wf-btn buscar" data-accion="buscar"><span class="wf-ic" data-icon="search"></span>
+                  <span><b data-i18n="arte.buscar">Buscar arte</b><small data-i18n="arte.buscar_d">Artes existentes del mismo código</small></span></button>
+                <button class="wf-btn todo" data-accion="todo"><span class="wf-ic" data-icon="zap"></span>
+                  <span><b data-i18n="arte.todo">Todo en uno</b><small data-i18n="arte.todo_d">Extraer + crear arte de cada pieza</small></span></button>
+              </div>
+              <div class="row" style="margin-top:14px">
+                <label class="check"><input type="checkbox" id="arte-comp" /><span data-i18n="arte.compensar">Compensar perímetro (offset 3 mm hacia adentro)</span></label>
+              </div>
+              <div class="progress" id="arte-prog" style="margin-top:14px"></div>
+            </div>
+          </div>
+
+          <div class="stack">
+            <div class="card tabla-card">
+              <div class="card-h"><h2 data-i18n="arte.encontrados">Artes encontrados</h2><span class="sp"></span><span class="count" id="arte-count"></span></div>
+              <div class="tabla-wrap" id="arte-tabla" style="max-height:320px;min-height:160px"></div>
+              <div class="tabla-foot"><span data-i18n="arte.hint_tabla">Doble clic → superponer en AutoCAD · clic derecho → abrir carpeta</span></div>
+            </div>
+            <div class="card">
+              <div class="card-h"><h2 data-i18n="arte.consola">Consola</h2><span class="sp"></span>
+                <button class="btn btn-sm" id="arte-log-copy"><span data-icon="copy"></span><span data-i18n="comun.copiar">Copiar</span></button>
+                <button class="btn btn-sm" id="arte-log-clear"><span data-icon="trash"></span><span data-i18n="comun.limpiar">Limpiar</span></button>
+              </div>
+              <div class="console" id="arte-log"><span class="console-empty" data-i18n="arte.consola_vacia">Aquí aparece el paso a paso de AutoCAD.</span></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── CONSULTAR BD ───────────────────────────────────────────── -->
+      <section class="page" data-page="bd">
+        <div class="stats" id="bd-stats"></div>
+        <div class="card">
+          <div class="sync-bar">
+            <button class="btn btn-ok" id="bd-sync"><span data-icon="refresh"></span><span id="bd-sync-txt" data-i18n="bd.sync">Sincronizar Excel → BD</span></button>
+            <div class="progress" id="bd-sync-prog"></div>
+            <span class="sync-status" id="bd-sync-st" data-i18n="bd.sync_d">Actualiza la BD desde el Excel compartido en OneDrive</span>
+          </div>
+          <details class="sync-log" id="bd-sync-det"><summary data-i18n="bd.ver_log">Ver log de sincronización</summary>
+            <div class="console" id="bd-sync-log"><span class="console-empty">—</span></div>
+          </details>
+        </div>
+        <div class="card tabla-card">
+          <div class="row" style="margin-bottom:14px">
+            <div class="seg" id="bd-tabs" role="tablist"></div>
+            <div class="search"><span data-icon="search"></span><input class="input" id="bd-q" data-i18n-ph="bd.buscar_ph" placeholder="Buscar vehículo, código, malla..." /></div>
+          </div>
+          <div class="tabla-wrap" id="bd-tabla"></div>
+          <div class="tabla-foot"><span id="bd-count"></span><span class="sp"></span>
+            <span data-i18n="comun.hint_copiar">Clic en una celda + <span class="kbd">Ctrl</span>+<span class="kbd">C</span> copia la celda · doble clic copia la fila</span></div>
+        </div>
+      </section>
+
+      <!-- ── GESTIÓN BD ─────────────────────────────────────────────── -->
+      <section class="page" data-page="gestion">
+        <div class="card tabla-card">
+          <div class="row" style="margin-bottom:12px">
+            <div class="seg" id="ge-tabs" role="tablist"></div>
+            <span class="grow"></span>
+            <button class="btn btn-warn" id="ge-separar"><span data-icon="lock"></span><span data-i18n="ge.separar">Separar vitro / malla</span></button>
+            <button class="btn btn-ok" id="ge-insertar"><span data-icon="plus"></span><span data-i18n="ge.insertar">Insertar manual</span></button>
+          </div>
+          <div class="row" style="margin-bottom:14px">
+            <div class="search"><span data-icon="search"></span><input class="input" id="ge-q" data-i18n-ph="bd.buscar_ph" placeholder="Buscar vehículo, código, malla..." /></div>
+          </div>
+          <div class="tabla-wrap" id="ge-tabla"></div>
+          <div class="tabla-foot"><span id="ge-count"></span><span class="sp"></span>
+            <span data-i18n="ge.hint">Doble clic (o Enter) sobre una fila para editar · Ctrl+C copia la celda</span></div>
+        </div>
+      </section>
+
+      <!-- ── SCANNER ────────────────────────────────────────────────── -->
+      <section class="page" data-page="scanner">
+        <div class="scan-hero">
+          <div class="scan-wrap"><span data-icon="scan"></span>
+            <input class="scan-input" id="sc-input" autocomplete="off" spellcheck="false" data-i18n-ph="sc.ph" placeholder="Escanea o escribe el número de orden..." />
+          </div>
+          <button class="btn btn-primary scan-btn" id="sc-btn" data-i18n="sc.buscar">Buscar</button>
+        </div>
+        <div class="progress" id="sc-prog"></div>
+        <div class="scan-hist hide" id="sc-hist"></div>
+        <div id="sc-res"></div>
+      </section>
+
+      <!-- ── ROLES ──────────────────────────────────────────────────── -->
+      <section class="page" data-page="roles">
+        <div class="roles-grid">
+          <div class="card tabla-card">
+            <div class="row" style="margin-bottom:14px">
+              <div class="search"><span data-icon="search"></span><input class="input" id="ro-q" data-i18n-ph="ro.buscar_ph" placeholder="Buscar usuario..." /></div>
+              <button class="btn" id="ro-reload"><span data-icon="refresh"></span><span data-i18n="comun.recargar">Recargar</span></button>
+            </div>
+            <div class="tabla-wrap" id="ro-tabla"></div>
+            <div class="tabla-foot"><span id="ro-count"></span></div>
+          </div>
+          <div class="card panel-sticky">
+            <div class="card-h"><h2 data-i18n="ro.editar">Editar usuario</h2></div>
+            <div class="stack">
+              <div><div class="dim" style="font-size:12px" data-i18n="ro.nombre">Nombre</div><b id="ro-nombre">—</b></div>
+              <div><div class="dim" style="font-size:12px" data-i18n="ro.usuario">Usuario</div><span class="mono soft" id="ro-usuario">—</span></div>
+              <div class="field"><label for="ro-rol" data-i18n="ro.rol">Rol</label>
+                <select class="input" id="ro-rol"></select></div>
+              <div class="row"><label class="switch"><input type="checkbox" id="ro-est" /><span></span></label><span data-i18n="ro.activo">Activo</span></div>
+              <div class="msg" id="ro-msg"></div>
+              <button class="btn btn-primary" id="ro-save" disabled><span data-icon="save"></span><span data-i18n="comun.guardar">Guardar cambios</span></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── LOGOS LASER ────────────────────────────────────────────── -->
+      <section class="page" data-page="logos">
+        <div class="card tabla-card">
+          <div class="row" style="margin-bottom:14px">
+            <div class="search"><span data-icon="search"></span><input class="input" id="ll-q" data-i18n-ph="ll.buscar_ph" placeholder="Buscar cliente, producto o ID..." /></div>
+            <button class="btn btn-ok" id="ll-nueva"><span data-icon="plus"></span><span data-i18n="ll.nueva">Nueva fila</span></button>
+            <button class="btn" id="ll-reload"><span data-icon="refresh"></span><span data-i18n="comun.recargar">Recargar</span></button>
+          </div>
+          <div class="xg-wrap" id="ll-grid" tabindex="0"></div>
+          <div class="tabla-foot"><span id="ll-status"></span><span class="sp"></span>
+            <span data-i18n="ll.hint">Clic/arrastrar selecciona · escribe o F2 para editar · Tab/Enter avanzan · Ctrl+C / Ctrl+V como en Excel · Supr limpia</span></div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+</div>
+
+<div id="modales"></div>
+<div class="toasts" id="toasts" aria-live="polite"></div>
+
+<script src="js/i18n.js"></script>
+<script src="js/core.js"></script>
+<script src="js/arte.js"></script>
+<script src="js/bd.js"></script>
+<script src="js/gestion.js"></script>
+<script src="js/scanner.js"></script>
+<script src="js/roles.js"></script>
+<script src="js/logos.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>

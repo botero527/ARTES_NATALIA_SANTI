@@ -60,6 +60,43 @@ try:
 except Exception:
     _ASIGN_OK = False
 
+try:
+    # Pestaña "Logos Laser" — vive completamente aparte (ver tab_logos_laser.py),
+    # esto es lo único que la conecta con el resto de la app.
+    from tab_logos_laser import TabLogosLaser
+    _LOGOS_LASER_OK = True
+    _LOGOS_LASER_ERROR = None
+except Exception as _e_ll:
+    _LOGOS_LASER_OK = False
+    TabLogosLaser = None  # referenciada más abajo aunque el import falle
+    # Guardamos el detalle para poder avisarle al admin en vez de tragarnos
+    # el error en silencio (el .exe corre sin consola, si no se ve en ningún lado).
+    _LOGOS_LASER_ERROR = f"{type(_e_ll).__name__}: {_e_ll}"
+
+try:
+    # Rastreo de actividad (mallas.APP_SESIONES / APP_EVENTOS) — ver
+    # db_app/tracking.py. Mismo estilo defensivo que el resto: si falla el
+    # import, se usan funciones que no hacen nada — el resto del código
+    # llama _registrar_evento(...) sin preguntarse si el módulo cargó.
+    from db_app.tracking import (
+        iniciar_sesion as _iniciar_sesion,
+        registrar_evento as _registrar_evento,
+        marcar_actividad as _marcar_actividad,
+        latido as _latido,
+        cerrar_sesion as _cerrar_sesion,
+        limpiar_sesiones_huerfanas as _limpiar_sesiones_huerfanas,
+    )
+    _TRACKING_OK = True
+except Exception as _e_tr:
+    _TRACKING_OK = False
+    print(f"[tracking] no disponible: {_e_tr}")
+    def _iniciar_sesion(*_a, **_k): pass
+    def _registrar_evento(*_a, **_k): pass
+    def _marcar_actividad(*_a, **_k): pass
+    def _latido(*_a, **_k): pass
+    def _cerrar_sesion(*_a, **_k): pass
+    def _limpiar_sesiones_huerfanas(*_a, **_k): return 0
+
 import re, math, shutil, json, datetime
 import tkinter as _tk_root
 from tkinter import filedialog, messagebox
@@ -638,8 +675,10 @@ class TabArte(ctk.CTkFrame):
                 motor.quit()  # quit() ya llama CoUninitialize internamente
             self._log_fn(f"Guardado → {dest}", "ok")
             subprocess.Popen(["explorer", "/select,", dest])
+            _registrar_evento("extraer_plano", pestana="Crear Arte", detalle=dest, exito=True)
         except Exception as e:
             self._log_fn(str(e), "err")
+            _registrar_evento("extraer_plano", pestana="Crear Arte", detalle=str(e)[:200], exito=False)
         finally:
             self._busy(False)
 
@@ -681,13 +720,17 @@ class TabArte(ctk.CTkFrame):
                     self._log_fn(f"WARN ruta BD: {_re}", "warn")
             if self._on_art_done:
                 self.after(0, self._on_art_done)
+            _registrar_evento("crear_arte", pestana="Crear Arte",
+                               detalle=os.path.basename(arte0), exito=True)
         except ErrorGuardadoArte as e:
             self._log_fn(f"Arte creado, pero falló al guardar: {e}", "warn")
             self.after(0, lambda msg=str(e): _msgbox_topmost("warning", "Arte creado — Error al guardar", msg))
+            _registrar_evento("crear_arte", pestana="Crear Arte", detalle=str(e)[:200], exito=False)
         except Exception as e:
             self._log_fn(f"ERROR: {e}", "err")
             self._log_fn(traceback.format_exc(), "err")
             _anular_bd(valores, self._log_fn)
+            _registrar_evento("crear_arte", pestana="Crear Arte", detalle=str(e)[:200], exito=False)
         finally:
             self._busy(False)
 
@@ -705,6 +748,7 @@ class TabArte(ctk.CTkFrame):
         self._resultados = res
         self.after(0, self._fill_table, res)
         self._log_fn(f"{len(res)} arte(s) encontrados.", "ok" if res else "warn")
+        _registrar_evento("buscar_arte", pestana="Crear Arte", detalle=f"{len(res)} resultado(s)")
         self._busy(False)
 
     def _fill_table(self, res):
@@ -744,6 +788,7 @@ class TabArte(ctk.CTkFrame):
 
         # Un único CoInitialize para todo el proceso en este hilo
         pythoncom.CoInitialize()
+        _todo_error = None
         try:
             # ── 1. Extraer plano ──────────────────────────────────────────────
             motor = AutoCADMotor()
@@ -799,11 +844,13 @@ class TabArte(ctk.CTkFrame):
         except ErrorGuardadoArte as e:
             self._log_fn(f"Arte creado, pero falló al guardar: {e}", "warn")
             self.after(0, lambda msg=str(e): _msgbox_topmost("warning", "Arte creado — Error al guardar", msg))
+            _todo_error = str(e)
         except Exception as e:
             self._log_fn(f"ERROR: {e}", "err")
             self._log_fn(traceback.format_exc(), "err")
             _anular_bd(valores, self._log_fn)
             self.after(0, lambda msg=str(e): _msgbox_topmost("error", "Error — Todo en Uno", msg))
+            _todo_error = str(e)
         finally:
             pythoncom.CoUninitialize()
 
@@ -811,6 +858,9 @@ class TabArte(ctk.CTkFrame):
         if self._on_art_done:
             self.after(0, self._on_art_done)
         self.after(0, lambda: subprocess.Popen(["explorer", os.path.dirname(arte0)]))
+        _registrar_evento("todo_en_uno", pestana="Crear Arte",
+                           detalle=_todo_error or os.path.basename(arte0),
+                           exito=_todo_error is None)
         self._busy(False)
 
     def _on_doble_click(self, _):
@@ -1135,6 +1185,7 @@ class TabBD(ctk.CTkFrame):
         self._lbl_sync.configure(
             text="✔ Sincronización completada" if ok else "✘ Hubo errores — revisa el log",
             text_color=PAL["green"] if ok else PAL["orange"])
+        _registrar_evento("sync_excel", pestana="Consultar BD", exito=bool(ok))
         self._load_stats()
         self._do_search()
 
@@ -1641,8 +1692,12 @@ class TabGestion(ctk.CTkFrame):
                 self.after(200, self._do_search)
                 if self._on_data_changed:
                     self.after(400, self._on_data_changed)
+                _registrar_evento("editar_registro", pestana="Gestión BD",
+                                   detalle=f"{tabla} {pk_val}", exito=True)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
+                _registrar_evento("editar_registro", pestana="Gestión BD",
+                                   detalle=f"{tabla} {pk_val}: {ex}"[:200], exito=False)
 
         btn_ok = _tk.Button(btn_f, text="  Guardar cambios  ",
                             font=("Segoe UI", 10, "bold"),
@@ -1683,8 +1738,12 @@ class TabGestion(ctk.CTkFrame):
                 self.after(200, self._do_search)
                 if self._on_data_changed:
                     self.after(400, self._on_data_changed)
+                _registrar_evento("anular_asignacion", pestana="Gestión BD",
+                                   detalle=f"{tab} {pk_val}", exito=True)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {ex}", fg="#ef4444")
+                _registrar_evento("anular_asignacion", pestana="Gestión BD",
+                                   detalle=f"{tab} {pk_val}: {ex}"[:200], exito=False)
 
         if tab in ("vinilos", "pasta_plata"):
             return  # sin botón anular para estas tablas
@@ -1949,8 +2008,12 @@ class TabGestion(ctk.CTkFrame):
                 self.after(200, self._do_search)
                 if self._on_data_changed:
                     self.after(400, self._on_data_changed)
+                _registrar_evento("insertar_manual", pestana="Gestión BD",
+                                   detalle=f"{tabla} {pk_insertado}", exito=True)
             except Exception as ex:
                 msg_lbl.configure(text=f"✘ Error: {str(ex)[:90]}", fg="#ef4444")
+                _registrar_evento("insertar_manual", pestana="Gestión BD",
+                                   detalle=f"{tabla}: {ex}"[:200], exito=False)
 
         _tk.Button(btn_f, text="  Insertar registro  ",
                    font=("Segoe UI", 10, "bold"),
@@ -1986,8 +2049,11 @@ class TabGestion(ctk.CTkFrame):
                 self._do_search()
                 if self._on_data_changed:
                     self.after(200, self._on_data_changed)
+                _registrar_evento("separar_vitro_malla", pestana="Gestión BD", exito=True)
         except Exception as e:
             _msgbox_topmost("error", "Error", str(e))
+            _registrar_evento("separar_vitro_malla", pestana="Gestión BD",
+                               detalle=str(e)[:200], exito=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2324,6 +2390,8 @@ class TabScanner(ctk.CTkFrame):
             cn.close()
             if not row:
                 self.after(0, self._mostrar_error, f"Orden  {orden}  no encontrada")
+                _registrar_evento("escaneo_orden", pestana="Scanner",
+                                   detalle=f"orden={orden} no encontrada", exito=False)
                 return
             zfer = str(row[0]).strip()
 
@@ -2444,8 +2512,12 @@ class TabScanner(ctk.CTkFrame):
                        " / ".join(t1s) or "—",
                        " / ".join(v.lstrip(";") for v in t2s), mallas,
                        vitro_ruta, malla_rutas, _ruta_err, cal, sap_info)
+            _registrar_evento("escaneo_orden", pestana="Scanner",
+                               detalle=f"orden={orden} zfer={zfer}", exito=True)
         except Exception as e:
             self.after(0, self._mostrar_error, str(e)[:120])
+            _registrar_evento("escaneo_orden", pestana="Scanner",
+                               detalle=f"orden={orden}: {e}"[:200], exito=False)
 
     def _mostrar_resultado(self, orden, zfer, vitro1, vitro2, mallas,
                            vitro_ruta=None, malla_rutas=None,
@@ -2795,8 +2867,13 @@ class TabRoles(ctk.CTkFrame):
             cn.commit(); cn.close()
             self._lbl_msg.configure(text="✔ Guardado", text_color="#22C55E")
             self.refresh()
+            _registrar_evento("editar_rol_usuario", pestana="Roles y Permisos",
+                               detalle=f"{self._lbl_usuario.cget('text')} → rol={rol_sql}, estatus={estatus}",
+                               exito=True)
         except Exception as e:
             self._lbl_msg.configure(text=f"Error: {e}", text_color="#EF4444")
+            _registrar_evento("editar_rol_usuario", pestana="Roles y Permisos",
+                               detalle=str(e)[:200], exito=False)
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -2809,6 +2886,7 @@ _PERMISOS = {
     "Gestión BD":       {"admin", "dibujante"},
     "Scanner":          {"admin", "dibujante", "planta"},
     "Roles y Permisos": {"admin"},
+    "Logos Laser":      {"admin"},
 }
 
 class AGPApp(ctk.CTk):
@@ -2819,6 +2897,8 @@ class AGPApp(ctk.CTk):
         ("Scanner",          "📷", TabScanner),
         ("Roles y Permisos", "👥", TabRoles),
     ]
+    if _LOGOS_LASER_OK:
+        PAGES.append(("Logos Laser", "🔶", TabLogosLaser))
 
     def __init__(self, usuario_info=None):
         super().__init__()
@@ -2832,6 +2912,49 @@ class AGPApp(ctk.CTk):
         self._build()
         threading.Thread(target=self._limpiar_pendientes, daemon=True).start()
         threading.Thread(target=self._test_conexion, daemon=True).start()
+        threading.Thread(target=self._iniciar_tracking, daemon=True).start()
+        if not _LOGOS_LASER_OK and self._rol == "admin":
+            # El .exe corre sin consola (console=False) — sin este aviso el error
+            # de import de Logos Laser se pierde y la pestaña desaparece en silencio.
+            self.after(1200, self._avisar_error_logos_laser)
+
+        # ── Rastreo de actividad (mallas.APP_SESIONES / APP_EVENTOS) ────────
+        # Cierre de ventana (X del título, Alt+F4) → cerrar sesión con duración.
+        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        # Cualquier clic o tecla en CUALQUIER parte de la app cuenta como
+        # "actividad real" — para diferenciar "trabajando" de "la dejó
+        # abierta sin tocarla" (bind_all = toda la ventana, no solo un widget).
+        self.bind_all("<Button>", lambda e: _marcar_actividad(), add=True)
+        self.bind_all("<Key>",    lambda e: _marcar_actividad(), add=True)
+        self._heartbeat_tick()  # primer latido programado; se reprograma solo
+
+    def _iniciar_tracking(self):
+        """Corre en hilo aparte al arrancar: limpia sesiones huérfanas de
+        crashes anteriores, abre la sesión de este login y anota el evento
+        de login. Si Azure SQL no responde, todo esto se salta en silencio
+        (ver db_app/tracking.py) — nunca frena el arranque de la app."""
+        _limpiar_sesiones_huerfanas()
+        _iniciar_sesion(self._usuario)
+        _registrar_evento("login", detalle=f"rol={self._rol or 'sin rol'}")
+
+    def _heartbeat_tick(self):
+        """Late cada ~4 minutos mientras la app siga abierta — así se puede
+        distinguir una sesión que sigue viva de una que se quedó pegada."""
+        _latido()
+        self.after(240_000, self._heartbeat_tick)
+
+    def _on_close(self):
+        _registrar_evento("logout")
+        _cerrar_sesion("normal")
+        self.destroy()
+
+    def _avisar_error_logos_laser(self):
+        messagebox.showwarning(
+            "Logos Laser no cargó",
+            "La pestaña 'Logos Laser' no se pudo cargar al iniciar — no le va a "
+            "aparecer a nadie hasta que se corrija.\n\n"
+            f"Detalle técnico:\n{_LOGOS_LASER_ERROR}\n\n"
+            "Pasále este mensaje completo a quien mantiene la app.")
 
     def _test_conexion(self):
         """Prueba la conexión al arrancar y muestra popup claro si falla."""
@@ -2992,7 +3115,7 @@ class AGPApp(ctk.CTk):
         # Instanciar solo las páginas activas para este rol
         for name, icon, cls in self._pages_activas:
             kwargs = {}
-            if cls in (TabGestion, TabRoles):
+            if cls in (TabGestion, TabRoles, TabLogosLaser):
                 kwargs["usuario_info"] = self._usuario
             f = cls(self._content, **kwargs)
             f.place(x=0, y=0, relwidth=1, relheight=1)
@@ -3022,6 +3145,7 @@ class AGPApp(ctk.CTk):
         "Gestión BD":       "Editar, separar e insertar registros en la BD",
         "Scanner":          "Escáner de órdenes de producción — barcode → SmartFactory → SAP",
         "Roles y Permisos": "Gestión de roles y accesos de usuarios",
+        "Logos Laser":      "Registro de logos láser — mallas.LOGOS_LASER",
     }
 
     def _on_content_resize(self, e):
@@ -3044,20 +3168,37 @@ class AGPApp(ctk.CTk):
         # Refrescar BD al entrar a esas pestañas (datos siempre actualizados)
         if name in ("Consultar BD", "Gestión BD"):
             self._frames[name].refresh()
+        _registrar_evento("cambio_pestana", pestana=name)
 
 # ══════════════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
     # ── Login ──────────────────────────────────────────────────────────────
     _USUARIO_ACTUAL = None
+
+    # Si el Panel de Herramientas AGP abrió esta app con un token de sesión
+    # válido, se salta la ventana de login por completo — el usuario ya se
+    # autenticó una vez allá.
     try:
-        from login_window import LoginWindow
-        login = LoginWindow()
-        login.mainloop()
-        if login.usuario_info is None:
-            sys.exit(0)
-        _USUARIO_ACTUAL = login.usuario_info
-    except Exception as _le:
-        print(f"[login] error: {_le}")
+        import agp_sso
+        from db_app import auth as _db_auth
+        _token = agp_sso.token_de_argv(sys.argv)
+        if _token:
+            _payload = agp_sso.verificar_token(_token)
+            if _payload:
+                _USUARIO_ACTUAL = _db_auth.cargar_por_usuario(_payload["usuario"])
+    except Exception as _sso_e:
+        print(f"[sso] error: {_sso_e}")
+
+    if _USUARIO_ACTUAL is None:
+        try:
+            from login_window import LoginWindow
+            login = LoginWindow()
+            login.mainloop()
+            if login.usuario_info is None:
+                sys.exit(0)
+            _USUARIO_ACTUAL = login.usuario_info
+        except Exception as _le:
+            print(f"[login] error: {_le}")
 
     # ── Sin rol asignado ────────────────────────────────────────────────────
     if _USUARIO_ACTUAL and not _USUARIO_ACTUAL.get("rol"):

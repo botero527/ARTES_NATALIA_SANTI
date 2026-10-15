@@ -115,9 +115,50 @@ def validar_login(usuario: str, contrasenia: str):
                 "estatus":  row[3],
                 "rol":      (row[4] or "").strip().lower() or None,
             }
+        # Credenciales incorrectas (o usuario inactivo) — todavía no existe
+        # sesión, así que queda como evento suelto (sesion_id NULL). Visibilidad
+        # de seguridad: quién intentó entrar y falló, sin frenar el login.
+        try:
+            from db_app.tracking import registrar_evento_sin_sesion
+            registrar_evento_sin_sesion(usuario, "login_fallido")
+        except Exception:
+            pass
         return None
     except Exception as e:
         print(f"[auth] validar_login error: {e}")
+        return None
+
+
+def cargar_por_usuario(usuario: str):
+    """Igual que validar_login pero SIN comparar contraseña — solo para el
+    bypass de SSO cuando el Panel de Herramientas AGP ya autenticó al
+    usuario y manda un --sso-token válido. Vuelve a leer rol/estatus
+    frescos de la BD en vez de confiar en datos viejos del token.
+    """
+    if not _SQL_OK or not usuario:
+        return None
+    try:
+        cn = _conn()
+        cur = cn.cursor()
+        cur.execute(
+            "SELECT nombre, usuario, es_admin, estatus, rol "
+            "FROM MALLAS.APP_USUARIOS "
+            "WHERE LOWER(usuario)=LOWER(%s) AND estatus=1",
+            (usuario.strip(),)
+        )
+        row = cur.fetchone()
+        cn.close()
+        if not row:
+            return None
+        return {
+            "nombre":   row[0] or usuario,
+            "usuario":  row[1],
+            "es_admin": bool(row[2]),
+            "estatus":  row[3],
+            "rol":      (row[4] or "").strip().lower() or None,
+        }
+    except Exception as e:
+        print(f"[auth] cargar_por_usuario error: {e}")
         return None
 
 
